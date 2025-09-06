@@ -78,7 +78,7 @@ class DatabaseService {
 
   // Populate the workouts table with Insanity schedule
   Future _populateWorkouts(Database db) async {
-    // Sample workout data - we'll expand this later
+    // Complete Insanity 60-day workout schedule
     List<Map<String, dynamic>> workouts = [
       // Week 1
       {'id': 1, 'name': 'Fit Test', 'day_number': 1, 'week_number': 1, 'workout_type': 'fit_test'},
@@ -88,7 +88,75 @@ class DatabaseService {
       {'id': 5, 'name': 'Pure Cardio', 'day_number': 5, 'week_number': 1, 'workout_type': 'workout'},
       {'id': 6, 'name': 'Plyometric Cardio Circuit', 'day_number': 6, 'week_number': 1, 'workout_type': 'workout'},
       {'id': 7, 'name': 'Rest Day', 'day_number': 7, 'week_number': 1, 'workout_type': 'rest'},
-      // We'll add the full 60-day schedule later
+
+      // Week 2
+      {'id': 8, 'name': 'Cardio Power & Resistance', 'day_number': 8, 'week_number': 2, 'workout_type': 'workout'},
+      {'id': 9, 'name': 'Plyometric Cardio Circuit', 'day_number': 9, 'week_number': 2, 'workout_type': 'workout'},
+      {'id': 10, 'name': 'Cardio Recovery', 'day_number': 10, 'week_number': 2, 'workout_type': 'workout'},
+      {'id': 11, 'name': 'Pure Cardio', 'day_number': 11, 'week_number': 2, 'workout_type': 'workout'},
+      {'id': 12, 'name': 'Cardio Power & Resistance', 'day_number': 12, 'week_number': 2, 'workout_type': 'workout'},
+      {'id': 13, 'name': 'Pure Cardio', 'day_number': 13, 'week_number': 2, 'workout_type': 'workout'},
+      {'id': 14, 'name': 'Rest Day', 'day_number': 14, 'week_number': 2, 'workout_type': 'rest'},
+
+      // Week 3
+      {'id': 15, 'name': 'Plyometric Cardio Circuit', 'day_number': 15, 'week_number': 3, 'workout_type': 'workout'},
+      {'id': 16, 'name': 'Cardio Power & Resistance', 'day_number': 16, 'week_number': 3, 'workout_type': 'workout'},
+      {'id': 17, 'name': 'Cardio Recovery', 'day_number': 17, 'week_number': 3, 'workout_type': 'workout'},
+      {'id': 18, 'name': 'Pure Cardio', 'day_number': 18, 'week_number': 3, 'workout_type': 'workout'},
+      {'id': 19, 'name': 'Plyometric Cardio Circuit', 'day_number': 19, 'week_number': 3, 'workout_type': 'workout'},
+      {'id': 20, 'name': 'Cardio Power & Resistance', 'day_number': 20, 'week_number': 3, 'workout_type': 'workout'},
+      {'id': 21, 'name': 'Rest Day', 'day_number': 21, 'week_number': 3, 'workout_type': 'rest'},
+
+      // Week 4
+      {'id': 22, 'name': 'Pure Cardio', 'day_number': 22, 'week_number': 4, 'workout_type': 'workout'},
+      {'id': 23, 'name': 'Plyometric Cardio Circuit', 'day_number': 23, 'week_number': 4, 'workout_type': 'workout'},
+      {'id': 24, 'name': 'Cardio Recovery', 'day_number': 24, 'week_number': 4, 'workout_type': 'workout'},
+      {'id': 25, 'name': 'Cardio Power & Resistance', 'day_number': 25, 'week_number': 4, 'workout_type': 'workout'},
+      {'id': 26, 'name': 'Pure Cardio', 'day_number': 26, 'week_number': 4, 'workout_type': 'workout'},
+      {'id': 27, 'name': 'Plyometric Cardio Circuit', 'day_number': 27, 'week_number': 4, 'workout_type': 'workout'},
+      {'id': 28, 'name': 'Rest Day', 'day_number': 28, 'week_number': 4, 'workout_type': 'rest'},
+
+      // Week 5 - Recovery Week
+      {'id': 29, 'name': 'Core Cardio & Balance', 'day_number': 29, 'week_number': 5, 'workout_type': 'workout'},
+      {'id': 30, 'name': 'Core Cardio & Balance', 'day_number': 30, 'week_number': 5, 'workout_type': 'fit_test'},
+      {'id': 31, 'name': 'Core Cardio & Balance', 'day_number': 31, 'week_number': 5, 'workout_type': 'workout'},
+      {'id': 32, 'name': 'Core Cardio & Balance', 'day_number': 32, 'week_number': 5, 'workout_type': 'workout'},
+      {'id': 33, 'name': 'Core Cardio & Balance', 'day_number': 33, 'week_number': 5, 'workout_type': 'workout'},
+      {'id': 34, 'name': 'Core Cardio & Balance', 'day_number': 34, 'week_number': 5, 'workout_type': 'workout'},
+      {'id': 35, 'name': 'Rest Day', 'day_number': 35, 'week_number': 5, 'workout_type': 'rest'},
+
+      // Week 6 - Month 2 begins
+      {'id': 36, 'name': 'Max Interval Circuit', 'day_number': 36, 'week_number': 6, 'workout_type': 'workout'},
+      {'id': 37, 'name': 'Max Interval Plyo', 'day_number': 37, 'week_number': 6, 'workout_type': 'workout'},
+      {'id': 38, 'name': 'Max Cardio Conditioning', 'day_number': 38, 'week_number': 6, 'workout_type': 'workout'},
+      {'id': 39, 'name': 'Max Recovery', 'day_number': 39, 'week_number': 6, 'workout_type': 'workout'},
+      {'id': 40, 'name': 'Max Interval Circuit', 'day_number': 40, 'week_number': 6, 'workout_type': 'workout'},
+      {'id': 41, 'name': 'Max Interval Plyo', 'day_number': 41, 'week_number': 6, 'workout_type': 'workout'},
+      {'id': 42, 'name': 'Rest Day', 'day_number': 42, 'week_number': 6, 'workout_type': 'rest'},
+
+      // Week 7
+      {'id': 43, 'name': 'Max Cardio Conditioning', 'day_number': 43, 'week_number': 7, 'workout_type': 'workout'},
+      {'id': 44, 'name': 'Insane Abs', 'day_number': 44, 'week_number': 7, 'workout_type': 'workout'},
+      {'id': 45, 'name': 'Max Recovery', 'day_number': 45, 'week_number': 7, 'workout_type': 'workout'},
+      {'id': 46, 'name': 'Max Interval Circuit', 'day_number': 46, 'week_number': 7, 'workout_type': 'workout'},
+      {'id': 47, 'name': 'Max Cardio Conditioning', 'day_number': 47, 'week_number': 7, 'workout_type': 'workout'},
+      {'id': 48, 'name': 'Insane Abs', 'day_number': 48, 'week_number': 7, 'workout_type': 'workout'},
+      {'id': 49, 'name': 'Rest Day', 'day_number': 49, 'week_number': 7, 'workout_type': 'rest'},
+
+      // Week 8
+      {'id': 50, 'name': 'Max Interval Plyo', 'day_number': 50, 'week_number': 8, 'workout_type': 'workout'},
+      {'id': 51, 'name': 'Max Cardio Conditioning', 'day_number': 51, 'week_number': 8, 'workout_type': 'workout'},
+      {'id': 52, 'name': 'Max Recovery', 'day_number': 52, 'week_number': 8, 'workout_type': 'workout'},
+      {'id': 53, 'name': 'Max Interval Circuit', 'day_number': 53, 'week_number': 8, 'workout_type': 'workout'},
+      {'id': 54, 'name': 'Max Interval Plyo', 'day_number': 54, 'week_number': 8, 'workout_type': 'workout'},
+      {'id': 55, 'name': 'Insane Abs', 'day_number': 55, 'week_number': 8, 'workout_type': 'workout'},
+      {'id': 56, 'name': 'Rest Day', 'day_number': 56, 'week_number': 8, 'workout_type': 'rest'},
+
+      // Week 9 - Final Week
+      {'id': 57, 'name': 'Max Cardio Conditioning', 'day_number': 57, 'week_number': 9, 'workout_type': 'workout'},
+      {'id': 58, 'name': 'Max Recovery', 'day_number': 58, 'week_number': 9, 'workout_type': 'workout'},
+      {'id': 59, 'name': 'Insane Abs', 'day_number': 59, 'week_number': 9, 'workout_type': 'workout'},
+      {'id': 60, 'name': 'Final Fit Test', 'day_number': 60, 'week_number': 9, 'workout_type': 'fit_test'},
     ];
 
     for (var workout in workouts) {

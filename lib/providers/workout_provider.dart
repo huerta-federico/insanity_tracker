@@ -59,10 +59,13 @@ class WorkoutProvider extends ChangeNotifier {
   // Complete a workout
   Future<void> completeWorkout(int workoutId, {String? notes}) async {
     try {
-      String today = DateTime.now().toIso8601String().split('T')[0]; // YYYY-MM-DD format
+      String today = DateTime.now().toIso8601String().split(
+        'T',
+      )[0]; // YYYY-MM-DD format
 
       // Check if session already exists for today
-      WorkoutSession? existingSession = await _databaseService.getWorkoutSessionByDate(today);
+      WorkoutSession? existingSession = await _databaseService
+          .getWorkoutSessionByDate(today);
 
       if (existingSession != null) {
         // Update existing session
@@ -95,7 +98,8 @@ class WorkoutProvider extends ChangeNotifier {
     try {
       String today = DateTime.now().toIso8601String().split('T')[0];
 
-      WorkoutSession? existingSession = await _databaseService.getWorkoutSessionByDate(today);
+      WorkoutSession? existingSession = await _databaseService
+          .getWorkoutSessionByDate(today);
 
       if (existingSession != null) {
         // Update existing session
@@ -136,8 +140,12 @@ class WorkoutProvider extends ChangeNotifier {
   double getOverallProgress() {
     if (_workouts.isEmpty) return 0.0;
 
-    int completedWorkouts = _sessions.where((session) => session.completed).length;
-    int totalWorkouts = _workouts.where((workout) => workout.workoutType == 'workout').length;
+    int completedWorkouts = _sessions
+        .where((session) => session.completed)
+        .length;
+    int totalWorkouts = _workouts
+        .where((workout) => workout.workoutType == 'workout')
+        .length;
 
     if (totalWorkouts == 0) return 0.0;
     return (completedWorkouts / totalWorkouts) * 100;
@@ -154,4 +162,45 @@ class WorkoutProvider extends ChangeNotifier {
           sessionDate.isBefore(weekStart.add(const Duration(days: 7)));
     }).toList();
   }
+
+  // Inside class WorkoutProvider extends ChangeNotifier
+
+  // ... existing methods ...
+
+  // --- START: New method ---
+  Future<void> bulkUpsertWorkoutSessions(List<WorkoutSession> sessions) async {
+    if (sessions.isEmpty) return;
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      for (final session in sessions) {
+        // Check if a session for this date already exists
+        WorkoutSession? existingSession = await _databaseService
+            .getWorkoutSessionByDate(session.date);
+
+        if (existingSession != null) {
+          // Update existing session
+          // Important: Preserve the existing ID
+          WorkoutSession sessionToUpdate = session.copyWith(
+            id: existingSession.id,
+          );
+          await _databaseService.updateWorkoutSession(sessionToUpdate);
+        } else {
+          // Insert new session
+          await _databaseService.insertWorkoutSession(session);
+        }
+      }
+      await _loadWorkoutSessions(); // Reload all sessions to reflect changes
+    } catch (e) {
+      debugPrint('Error in bulkUpsertWorkoutSessions: $e');
+      // Rethrow to allow UI to catch and display specific error
+      throw Exception('Failed to process workout sessions: $e');
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // --- END: New method ---
 }
