@@ -12,15 +12,11 @@ class ProgressScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Progress'),
-      ),
+      appBar: AppBar(title: const Text('Progress')),
       body: Consumer2<WorkoutProvider, FitTestProvider>(
         builder: (context, workoutProvider, fitTestProvider, child) {
           if (workoutProvider.isLoading || fitTestProvider.isLoading) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
+            return const Center(child: CircularProgressIndicator());
           }
 
           return SingleChildScrollView(
@@ -60,9 +56,22 @@ class ProgressScreen extends StatelessWidget {
 
   /// Overall statistics card
   Widget _buildOverallStatsCard(WorkoutProvider workoutProvider) {
-    final completedWorkouts = workoutProvider.sessions.where((s) => s.completed).length;
-    final totalWorkouts = workoutProvider.workouts.where((w) => w.workoutType == 'workout').length;
-    final overallProgress = workoutProvider.getOverallProgress();
+    final completedWorkouts = workoutProvider.sessions
+        .where((s) => s.completed)
+        .length;
+    // Get total workout days in one cycle for display, ensure it matches provider logic
+    final totalWorkoutsInCycle = workoutProvider.workouts
+        .where((w) => w.workoutType == 'workout')
+        .length;
+
+    // Updated: Get the progress map
+    final Map<String, double> progressData = workoutProvider
+        .getOverallProgress();
+    final double currentCycleProgress =
+        progressData['currentCycleProgress'] ?? 0.0;
+    final int completedCycles = (progressData['completedCycles'] ?? 0.0)
+        .toInt();
+
     final thisWeekSessions = workoutProvider.getThisWeekSessions();
     final completedThisWeek = thisWeekSessions.where((s) => s.completed).length;
 
@@ -76,11 +85,20 @@ class ProgressScreen extends StatelessWidget {
               'Overall Progress',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
+            const SizedBox(height: 8),
+            if (completedCycles > 0)
+              Text(
+                'Completed Cycles: $completedCycles',
+                style: const TextStyle(fontSize: 14, color: Colors.blueGrey),
+              ),
             const SizedBox(height: 16),
 
-            // Progress bar
+            // Progress bar for the current cycle
             LinearProgressIndicator(
-              value: overallProgress / 100,
+              // Updated: Use currentCycleProgress
+              value: totalWorkoutsInCycle > 0
+                  ? (currentCycleProgress / 100)
+                  : 0.0,
               backgroundColor: Colors.grey.shade300,
               valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
               minHeight: 8,
@@ -89,7 +107,8 @@ class ProgressScreen extends StatelessWidget {
             const SizedBox(height: 8),
 
             Text(
-              '${overallProgress.toStringAsFixed(1)}% Complete',
+              // Updated: Display current cycle progress
+              'Current Cycle: ${currentCycleProgress.toStringAsFixed(1)}% Complete',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
 
@@ -100,7 +119,7 @@ class ProgressScreen extends StatelessWidget {
               children: [
                 Expanded(
                   child: _buildStatItem(
-                    'Completed',
+                    'Completed', // This might represent total completed across all cycles
                     '$completedWorkouts',
                     'workouts',
                     Icons.check_circle,
@@ -109,7 +128,7 @@ class ProgressScreen extends StatelessWidget {
                 ),
                 Expanded(
                   child: _buildStatItem(
-                    'This Week',
+                    'This Week', // Completed in the current calendar week
                     '$completedThisWeek',
                     'workouts',
                     Icons.calendar_month,
@@ -118,8 +137,9 @@ class ProgressScreen extends StatelessWidget {
                 ),
                 Expanded(
                   child: _buildStatItem(
-                    'Total',
-                    '$totalWorkouts',
+                    // Updated: This should be total workouts in *one* cycle
+                    'Per Cycle',
+                    '$totalWorkoutsInCycle',
                     'workouts',
                     Icons.fitness_center,
                     Colors.orange,
@@ -181,7 +201,10 @@ class ProgressScreen extends StatelessWidget {
                   gridData: const FlGridData(show: true),
                   titlesData: FlTitlesData(
                     leftTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: true, reservedSize: 40),
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 40,
+                      ),
                     ),
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
@@ -195,14 +218,21 @@ class ProgressScreen extends StatelessWidget {
                         },
                       ),
                     ),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                   ),
                   borderData: FlBorderData(show: true),
                   lineBarsData: [
                     LineChartBarData(
                       spots: fitTests.asMap().entries.map((entry) {
-                        return FlSpot(entry.key.toDouble(), entry.value.totalReps.toDouble());
+                        return FlSpot(
+                          entry.key.toDouble(),
+                          entry.value.totalReps.toDouble(),
+                        );
                       }).toList(),
                       isCurved: true,
                       color: Colors.red,
@@ -231,13 +261,55 @@ class ProgressScreen extends StatelessWidget {
 
   /// Workout completion chart
   Widget _buildWorkoutCompletionChart(WorkoutProvider workoutProvider) {
-    final completedCount = workoutProvider.sessions.where((s) => s.completed).length;
-    final skippedCount = workoutProvider.sessions.where((s) => !s.completed).length;
-    final totalWorkouts = workoutProvider.workouts.where((w) => w.workoutType == 'workout').length;
-    final remainingCount = totalWorkouts - completedCount - skippedCount;
+    // Get stats for the current cycle
+    final Map<String, int> cycleStats = workoutProvider
+        .getCurrentCycleSessionStats();
+    final int completedInCycle = cycleStats['completed'] ?? 0;
+    final int skippedInCycle = cycleStats['skipped'] ?? 0;
+    // 'remaining' from provider is based on 'workout' type days up to today vs total 'workout' days
+    final int remainingInCycle = cycleStats['remaining'] ?? 0;
+    final int totalWorkoutsInCycle = cycleStats['totalInCycle'] ?? 0;
 
-    if (totalWorkouts == 0) {
-      return const SizedBox.shrink();
+    if (totalWorkoutsInCycle == 0) {
+      // Should not happen if workouts are populated
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              const Text(
+                'Current Cycle Workout Status',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              const Text('No workout data available for the cycle.'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Ensure total for chart sections sums up correctly
+    // The 'remaining' is for *workout* type days.
+    // Pie chart will show completed, skipped (for workout type), and remaining (for workout type).
+    double chartCompleted = completedInCycle.toDouble();
+    double chartSkipped = skippedInCycle.toDouble();
+    double chartRemaining = remainingInCycle.toDouble();
+
+    // If sum is zero, don't show chart, or show an empty state.
+    if (chartCompleted == 0 &&
+        chartSkipped == 0 &&
+        chartRemaining == 0 &&
+        totalWorkoutsInCycle > 0) {
+      // This means the cycle has started, but no workout-type days have been completed, skipped,
+      // and all workout-type days are technically "remaining".
+      // We can choose to show all as remaining.
+      chartRemaining = totalWorkoutsInCycle.toDouble();
+    } else if (chartCompleted == 0 &&
+        chartSkipped == 0 &&
+        chartRemaining == 0 &&
+        totalWorkoutsInCycle == 0) {
+      return const SizedBox.shrink(); // No data at all
     }
 
     return Card(
@@ -247,8 +319,14 @@ class ProgressScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Workout Status',
+              'Current Cycle Workout Status',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "$totalWorkoutsInCycle 'Workout' Days This Cycle", // Clarify it's about 'workout' days
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
             SizedBox(
@@ -256,10 +334,10 @@ class ProgressScreen extends StatelessWidget {
               child: PieChart(
                 PieChartData(
                   sections: [
-                    if (completedCount > 0)
+                    if (chartCompleted > 0)
                       PieChartSectionData(
-                        value: completedCount.toDouble(),
-                        title: 'Completed\n$completedCount',
+                        value: chartCompleted,
+                        title: 'Completed\n$completedInCycle',
                         color: Colors.green,
                         radius: 60,
                         titleStyle: const TextStyle(
@@ -268,10 +346,10 @@ class ProgressScreen extends StatelessWidget {
                           color: Colors.white,
                         ),
                       ),
-                    if (skippedCount > 0)
+                    if (chartSkipped > 0)
                       PieChartSectionData(
-                        value: skippedCount.toDouble(),
-                        title: 'Skipped\n$skippedCount',
+                        value: chartSkipped,
+                        title: 'Skipped\n$skippedInCycle',
                         color: Colors.orange,
                         radius: 60,
                         titleStyle: const TextStyle(
@@ -280,11 +358,11 @@ class ProgressScreen extends StatelessWidget {
                           color: Colors.white,
                         ),
                       ),
-                    if (remainingCount > 0)
+                    if (chartRemaining > 0)
                       PieChartSectionData(
-                        value: remainingCount.toDouble(),
-                        title: 'Remaining\n$remainingCount',
-                        color: Colors.grey,
+                        value: chartRemaining,
+                        title: 'Remaining\n$remainingInCycle',
+                        color: Colors.blueGrey, // Color for remaining
                         radius: 60,
                         titleStyle: const TextStyle(
                           fontSize: 12,
@@ -295,6 +373,7 @@ class ProgressScreen extends StatelessWidget {
                   ],
                   sectionsSpace: 2,
                   centerSpaceRadius: 40,
+                  // Optionally, handle tap events, etc.
                 ),
               ),
             ),
@@ -362,8 +441,12 @@ class ProgressScreen extends StatelessWidget {
   /// Individual improvement item
   Widget _buildImprovementItem(String exerciseName, double improvement) {
     final isPositive = improvement > 0;
-    final color = isPositive ? Colors.green : (improvement < 0 ? Colors.red : Colors.grey);
-    final icon = isPositive ? Icons.trending_up : (improvement < 0 ? Icons.trending_down : Icons.trending_flat);
+    final color = isPositive
+        ? Colors.green
+        : (improvement < 0 ? Colors.red : Colors.grey);
+    final icon = isPositive
+        ? Icons.trending_up
+        : (improvement < 0 ? Icons.trending_down : Icons.trending_flat);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0),
@@ -374,10 +457,7 @@ class ProgressScreen extends StatelessWidget {
           Expanded(child: Text(exerciseName)),
           Text(
             '${improvement > 0 ? '+' : ''}${improvement.toStringAsFixed(1)}%',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
+            style: TextStyle(fontWeight: FontWeight.bold, color: color),
           ),
         ],
       ),
@@ -385,7 +465,10 @@ class ProgressScreen extends StatelessWidget {
   }
 
   /// Detailed statistics card
-  Widget _buildDetailedStatsCard(WorkoutProvider workoutProvider, FitTestProvider fitTestProvider) {
+  Widget _buildDetailedStatsCard(
+    WorkoutProvider workoutProvider,
+    FitTestProvider fitTestProvider,
+  ) {
     final fitTests = fitTestProvider.getAllResults();
     final latestFitTest = fitTestProvider.getLatestFitTest();
     final sessions = workoutProvider.sessions;
@@ -409,8 +492,14 @@ class ProgressScreen extends StatelessWidget {
             _buildDetailedStatRow('Current Streak', '$currentStreak days'),
 
             if (latestFitTest != null) ...[
-              _buildDetailedStatRow('Latest Total Reps', '${latestFitTest.totalReps}'),
-              _buildDetailedStatRow('Last Fit Test', _formatDate(latestFitTest.testDate)),
+              _buildDetailedStatRow(
+                'Latest Total Reps',
+                '${latestFitTest.totalReps}',
+              ),
+              _buildDetailedStatRow(
+                'Last Fit Test',
+                _formatDate(latestFitTest.testDate),
+              ),
             ],
 
             if (fitTests.length >= 2) ...[
@@ -424,8 +513,8 @@ class ProgressScreen extends StatelessWidget {
               const SizedBox(height: 8),
               ..._getBestImprovements(fitTestProvider).map((improvement) {
                 return _buildDetailedStatRow(
-                    improvement['exercise'] ?? 'Unknown',
-                    improvement['improvement'] ?? '0%'
+                  improvement['exercise'] ?? 'Unknown',
+                  improvement['improvement'] ?? '0%',
                 );
               }),
             ],
@@ -443,17 +532,20 @@ class ProgressScreen extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label),
-          Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
     );
   }
 
   /// Individual stat item widget
-  Widget _buildStatItem(String label, String value, String unit, IconData icon, Color color) {
+  Widget _buildStatItem(
+    String label,
+    String value,
+    String unit,
+    IconData icon,
+    Color color,
+  ) {
     return Column(
       children: [
         Icon(icon, color: color, size: 24),
@@ -481,7 +573,9 @@ class ProgressScreen extends StatelessWidget {
 
     // Sort sessions by date (most recent first)
     final sortedSessions = sessions.toList()
-      ..sort((a, b) => DateTime.parse(b.date).compareTo(DateTime.parse(a.date)));
+      ..sort(
+        (a, b) => DateTime.parse(b.date).compareTo(DateTime.parse(a.date)),
+      );
 
     int streak = 0;
     DateTime? lastDate;
@@ -509,7 +603,9 @@ class ProgressScreen extends StatelessWidget {
   }
 
   /// Get best improvements for display
-  List<Map<String, String>> _getBestImprovements(FitTestProvider fitTestProvider) {
+  List<Map<String, String>> _getBestImprovements(
+    FitTestProvider fitTestProvider,
+  ) {
     final improvements = fitTestProvider.getImprovementPercentages();
 
     if (improvements.isEmpty) return [];
@@ -520,7 +616,8 @@ class ProgressScreen extends StatelessWidget {
     return sortedImprovements.take(3).map((entry) {
       return {
         'exercise': _getExerciseDisplayName(entry.key),
-        'improvement': '${entry.value > 0 ? '+' : ''}${entry.value.toStringAsFixed(1)}%',
+        'improvement':
+            '${entry.value > 0 ? '+' : ''}${entry.value.toStringAsFixed(1)}%',
       };
     }).toList();
   }
@@ -552,7 +649,20 @@ class ProgressScreen extends StatelessWidget {
   /// Format date string for display
   String _formatDate(String dateString) {
     final date = DateTime.parse(dateString);
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     return '${date.day} ${months[date.month - 1]} ${date.year}';
   }
 }

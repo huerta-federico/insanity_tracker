@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/workout_session.dart';
 import '../providers/workout_provider.dart';
 import '../models/workout.dart';
 import 'data_import_screen.dart';
@@ -40,15 +41,15 @@ class HomeScreen extends StatelessWidget {
       body: Consumer<WorkoutProvider>(
         builder: (context, workoutProvider, child) {
           if (workoutProvider.isLoading) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
+            return const Center(child: CircularProgressIndicator());
           }
 
           final todaysWorkout = workoutProvider.getTodaysWorkout();
-          final todaysSession = workoutProvider.getSessionForDate(
-            DateTime.now().toIso8601String().split('T')[0],
-          );
+          final WorkoutSession? todaysSession = workoutProvider
+              .getSessionForDate(
+                // Type it
+                DateTime.now().toIso8601String().split('T')[0],
+              );
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),
@@ -83,7 +84,15 @@ class HomeScreen extends StatelessWidget {
   /// Welcome card with current day information
   Widget _buildWelcomeCard(BuildContext context) {
     final now = DateTime.now();
-    final dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    final dayNames = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
     final todayName = dayNames[now.weekday - 1];
 
     return Card(
@@ -114,11 +123,11 @@ class HomeScreen extends StatelessWidget {
 
   /// Today's workout card with completion actions
   Widget _buildTodaysWorkoutCard(
-      BuildContext context,
-      Workout? todaysWorkout,
-      dynamic todaysSession,
-      WorkoutProvider workoutProvider,
-      ) {
+    BuildContext context,
+    Workout? todaysWorkout,
+    WorkoutSession? todaysSession,
+    WorkoutProvider workoutProvider,
+  ) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -135,7 +144,10 @@ class HomeScreen extends StatelessWidget {
               // Workout name and type
               Text(
                 todaysWorkout.name,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -150,7 +162,9 @@ class HomeScreen extends StatelessWidget {
                   todaysWorkout.workoutType.toUpperCase(),
                   style: const TextStyle(fontSize: 12),
                 ),
-                backgroundColor: _getWorkoutTypeColor(todaysWorkout.workoutType),
+                backgroundColor: _getWorkoutTypeColor(
+                  todaysWorkout.workoutType,
+                ),
               ),
 
               const SizedBox(height: 16),
@@ -174,7 +188,7 @@ class HomeScreen extends StatelessWidget {
                 ),
                 if (todaysSession?.notes != null) ...[
                   const SizedBox(height: 8),
-                  Text('Notes: ${todaysSession.notes}'),
+                  Text('Notes: ${todaysSession?.notes}'),
                 ],
               ] else if (todaysSession?.completed == false) ...[
                 // Marked as skipped
@@ -194,7 +208,7 @@ class HomeScreen extends StatelessWidget {
                 ),
                 if (todaysSession?.notes != null) ...[
                   const SizedBox(height: 8),
-                  Text('Reason: ${todaysSession.notes}'),
+                  Text('Reason: ${todaysSession?.notes}'),
                 ],
               ] else ...[
                 // Not completed yet - show action buttons
@@ -202,7 +216,11 @@ class HomeScreen extends StatelessWidget {
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: () => _completeWorkout(context, todaysWorkout, workoutProvider),
+                        onPressed: () => _completeWorkout(
+                          context,
+                          todaysWorkout,
+                          workoutProvider,
+                        ),
                         icon: const Icon(Icons.check),
                         label: const Text('Complete'),
                       ),
@@ -210,7 +228,11 @@ class HomeScreen extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () => _skipWorkout(context, todaysWorkout, workoutProvider),
+                        onPressed: () => _skipWorkout(
+                          context,
+                          todaysWorkout,
+                          workoutProvider,
+                        ),
                         icon: const Icon(Icons.skip_next),
                         label: const Text('Skip'),
                       ),
@@ -232,9 +254,19 @@ class HomeScreen extends StatelessWidget {
   }
 
   /// Quick stats card showing progress overview
-  Widget _buildQuickStatsCard(BuildContext context, WorkoutProvider workoutProvider) {
+  Widget _buildQuickStatsCard(
+    BuildContext context,
+    WorkoutProvider workoutProvider,
+  ) {
     final thisWeekSessions = workoutProvider.getThisWeekSessions();
     final completedThisWeek = thisWeekSessions.where((s) => s.completed).length;
+
+    // Get the progress data map
+    final Map<String, double> progressData = workoutProvider
+        .getOverallProgress();
+    // Extract the current cycle's progress, defaulting to 0.0 if not found
+    final double currentCycleProgress =
+        progressData['currentCycleProgress'] ?? 0.0;
 
     return Card(
       child: Padding(
@@ -243,7 +275,7 @@ class HomeScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'This Week',
+              'This Week', // Title seems to refer to completedThisWeek and thisWeekSessions.length
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
@@ -251,20 +283,21 @@ class HomeScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _buildStatItem(
-                  'Completed',
+                  'Completed', // Completed this week
                   '$completedThisWeek',
                   Icons.check_circle,
                   Colors.green,
                 ),
                 _buildStatItem(
-                  'Total',
+                  'Scheduled', // Total scheduled this week (based on getThisWeekSessions)
                   '${thisWeekSessions.length}',
-                  Icons.fitness_center,
+                  Icons.fitness_center, // Icon can be
+                  // 'list_alt' or 'event_note' for "scheduled"
                   Colors.blue,
                 ),
                 _buildStatItem(
-                  'Progress',
-                  '${workoutProvider.getOverallProgress().toStringAsFixed(0)}%',
+                  'Cycle Progress', // Changed label to be more specific
+                  '${currentCycleProgress.toStringAsFixed(0)}%', // Use the extracted double
                   Icons.trending_up,
                   Colors.orange,
                 ),
@@ -277,7 +310,12 @@ class HomeScreen extends StatelessWidget {
   }
 
   /// Individual stat item widget
-  Widget _buildStatItem(String label, String value, IconData icon, Color color) {
+  Widget _buildStatItem(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Column(
       children: [
         Icon(icon, color: color, size: 24),
@@ -290,10 +328,7 @@ class HomeScreen extends StatelessWidget {
             color: color,
           ),
         ),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-        ),
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
       ],
     );
   }
@@ -311,7 +346,11 @@ class HomeScreen extends StatelessWidget {
   }
 
   /// Complete workout with confirmation
-  void _completeWorkout(BuildContext context, Workout workout, WorkoutProvider provider) {
+  void _completeWorkout(
+    BuildContext context,
+    Workout workout,
+    WorkoutProvider provider,
+  ) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -324,7 +363,10 @@ class HomeScreen extends StatelessWidget {
           ),
           ElevatedButton(
             onPressed: () {
-              provider.completeWorkout(workout.id, notes: 'Completed from home screen');
+              provider.completeWorkout(
+                workout.id,
+                notes: 'Completed from home screen',
+              );
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('Completed: ${workout.name}!')),
@@ -338,7 +380,11 @@ class HomeScreen extends StatelessWidget {
   }
 
   /// Skip workout with reason input
-  void _skipWorkout(BuildContext context, Workout workout, WorkoutProvider provider) {
+  void _skipWorkout(
+    BuildContext context,
+    Workout workout,
+    WorkoutProvider provider,
+  ) {
     final TextEditingController reasonController = TextEditingController();
 
     showDialog(
@@ -369,7 +415,9 @@ class HomeScreen extends StatelessWidget {
             onPressed: () {
               provider.skipWorkout(
                 workout.id,
-                reason: reasonController.text.isEmpty ? 'No reason provided' : reasonController.text,
+                reason: reasonController.text.isEmpty
+                    ? 'No reason provided'
+                    : reasonController.text,
               );
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
