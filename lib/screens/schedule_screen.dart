@@ -14,21 +14,73 @@ class ScheduleScreen extends StatelessWidget {
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
-  Future<void> _pickProgramStartDate(BuildContext context, WorkoutProvider provider) async {
+  // Helper function to find the nearest Monday (past or present, or future based on flag)
+  DateTime _getNearestMonday(DateTime date, {bool allowFuture = true}) {
+    if (date.weekday == DateTime.monday) {
+      return DateTime(
+        date.year,
+        date.month,
+        date.day,
+      ); // Already a Monday, normalize time
+    }
+    if (allowFuture) {
+      return DateTime(
+        date.year,
+        date.month,
+        date.day,
+      ).add(Duration(days: (DateTime.monday - date.weekday + 7) % 7));
+    } else {
+      // Find previous Monday or today if Monday
+      int daysToSubtract = (date.weekday - DateTime.monday + 7) % 7;
+      return DateTime(
+        date.year,
+        date.month,
+        date.day,
+      ).subtract(Duration(days: daysToSubtract));
+    }
+  }
+
+  Future<void> _pickProgramStartDate(
+    BuildContext context,
+    WorkoutProvider provider,
+  ) async {
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: provider.programStartDate ?? DateTime.now().subtract(const Duration(days: 7)),
-      firstDate: DateTime(2010),
-      lastDate: DateTime.now(),
-      helpText: 'Select Your Program Start Date',
+      initialDate:
+          provider.programStartDate ??
+          _getNearestMonday(
+            DateTime.now().subtract(const Duration(days: 7)),
+          ), // Suggest nearest Monday
+      firstDate: DateTime(
+        2010,
+      ), // Ensure firstDate itself could be a Monday or adjust logic
+      lastDate: _getNearestMonday(
+        DateTime.now(),
+        allowFuture: false,
+      ), // Allow up to the most recent Monday
+      helpText: 'Select Your Program Start Date (Monday)', // Updated help text
+      selectableDayPredicate: (DateTime day) {
+        // Allow only Mondays to be selected.
+        // DateTime.monday is a constant int value 1.
+        if (day.weekday == DateTime.monday) {
+          return true;
+        }
+        return false;
+      },
       builder: (context, child) {
         return Theme(
           data: ThemeData.light().copyWith(
             colorScheme: const ColorScheme.light(
-              primary: Colors.red,
-              onPrimary: Colors.white,
-              onSurface: Colors.black,
-            ).copyWith(surface: Colors.white),
+              primary: Colors.red, // Active day, header background
+              onPrimary: Colors.white, // Text on active day, header text
+              onSurface: Colors.black, // Calendar text
+            ).copyWith(surface: Colors.white), // Calendar background
+            // Optional: Customize dialog buttons if needed
+            // textButtonTheme: TextButtonThemeData(
+            //   style: TextButton.styleFrom(
+            //     foregroundColor: Colors.red, // Button text color
+            //   ),
+            // ),
           ),
           child: child!,
         );
@@ -40,12 +92,17 @@ class ScheduleScreen extends StatelessWidget {
 
     if (picked != null && picked != provider.programStartDate) {
       try {
-        await provider.setProgramStartDate(picked);
+        await provider.setProgramStartDate(
+          picked,
+        ); // autoPopulatePastWorkouts defaults to true
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Program start date set to: ${_formatDateForDisplay(picked)}'),
+            content: Text(
+              'Program start date set to: ${_formatDateForDisplay(picked)}. Past workouts auto-completed.',
+            ),
             backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
           ),
         );
       } catch (e) {
@@ -64,7 +121,9 @@ class ScheduleScreen extends StatelessWidget {
     return Consumer<WorkoutProvider>(
       builder: (context, workoutProvider, child) {
         // This initial loading state check is good.
-        if (workoutProvider.isLoading && workoutProvider.programStartDate == null && workoutProvider.workouts.isEmpty) {
+        if (workoutProvider.isLoading &&
+            workoutProvider.programStartDate == null &&
+            workoutProvider.workouts.isEmpty) {
           return Scaffold(
             appBar: AppBar(title: const Text('Program Schedule')),
             body: const Center(child: CircularProgressIndicator()),
@@ -83,7 +142,11 @@ class ScheduleScreen extends StatelessWidget {
                     await workoutProvider.clearProgramStartDate();
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Program start date cleared for testing.')),
+                      const SnackBar(
+                        content: Text(
+                          'Program start date cleared for testing.',
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -95,9 +158,7 @@ class ScheduleScreen extends StatelessWidget {
                 _buildSetStartDatePrompt(context, workoutProvider)
               else
                 _buildStartDateDisplay(context, workoutProvider),
-              Expanded(
-                child: _buildScheduleContent(context, workoutProvider),
-              ),
+              Expanded(child: _buildScheduleContent(context, workoutProvider)),
             ],
           ),
         );
@@ -105,7 +166,10 @@ class ScheduleScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSetStartDatePrompt(BuildContext context, WorkoutProvider provider) {
+  Widget _buildSetStartDatePrompt(
+    BuildContext context,
+    WorkoutProvider provider,
+  ) {
     // This method seems fine.
     return Card(
       margin: const EdgeInsets.all(16.0),
@@ -141,7 +205,10 @@ class ScheduleScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStartDateDisplay(BuildContext context, WorkoutProvider provider) {
+  Widget _buildStartDateDisplay(
+    BuildContext context,
+    WorkoutProvider provider,
+  ) {
     // This method seems fine.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -152,25 +219,34 @@ class ScheduleScreen extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             _formatDateForDisplay(provider.programStartDate),
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.red,
+            ),
           ),
           IconButton(
             icon: Icon(Icons.edit, size: 20, color: Colors.grey[600]),
             tooltip: 'Change Start Date',
             onPressed: () => _pickProgramStartDate(context, provider),
-          )
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildScheduleContent(BuildContext context, WorkoutProvider workoutProvider) {
+  Widget _buildScheduleContent(
+    BuildContext context,
+    WorkoutProvider workoutProvider,
+  ) {
     if (workoutProvider.programStartDate == null) {
       // This is already handled by the main build method, but acts as a safeguard.
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(16.0),
-          child: Text('Please set your program start date to view the schedule.'),
+          child: Text(
+            'Please set your program start date to view the schedule.',
+          ),
         ),
       );
     }
@@ -184,7 +260,9 @@ class ScheduleScreen extends StatelessWidget {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(16.0),
-          child: Text('No workouts found. Ensure the database is populated and schedule is set.'),
+          child: Text(
+            'No workouts found. Ensure the database is populated and schedule is set.',
+          ),
         ),
       );
     }
@@ -199,9 +277,14 @@ class ScheduleScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildProgramOverviewCard(BuildContext context, WorkoutProvider workoutProvider) {
+  Widget _buildProgramOverviewCard(
+    BuildContext context,
+    WorkoutProvider workoutProvider,
+  ) {
     // This check is good as programStartDate can be cleared in debug mode.
-    if (workoutProvider.programStartDate == null) return const SizedBox.shrink();
+    if (workoutProvider.programStartDate == null) {
+      return const SizedBox.shrink();
+    }
 
     final progressData = workoutProvider.getOverallProgress();
     final currentCycleProgress = progressData['currentCycleProgress'] ?? 0.0;
@@ -211,9 +294,12 @@ class ScheduleScreen extends StatelessWidget {
     final currentProgramWeek = workoutProvider.getCurrentProgramWeekInCycle();
 
     // Ensure workouts list is not empty before doing LINQ operations
-    final totalCycleWorkouts = workoutProvider.workouts.where((w) => w.workoutType == 'workout').length;
-    final completedCycleWorkouts = totalCycleWorkouts > 0 ? (totalCycleWorkouts * (currentCycleProgress / 100)).round() : 0;
-
+    final totalCycleWorkouts = workoutProvider.workouts
+        .where((w) => w.workoutType == 'workout')
+        .length;
+    final completedCycleWorkouts = totalCycleWorkouts > 0
+        ? (totalCycleWorkouts * (currentCycleProgress / 100)).round()
+        : 0;
 
     return Card(
       margin: const EdgeInsets.all(16.0),
@@ -222,20 +308,31 @@ class ScheduleScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Program Overview', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              'Program Overview',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             if (completedCycles > 0)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4.0),
-                child: Text('Completed Cycles: $completedCycles', style: const TextStyle(fontSize: 14)),
+                child: Text(
+                  'Completed Cycles: $completedCycles',
+                  style: const TextStyle(fontSize: 14),
+                ),
               ),
             if (currentProgramWeek != null && currentProgramDay != null)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4.0),
-                child: Text('Current Cycle: Week $currentProgramWeek, Day $currentProgramDay', style: const TextStyle(fontSize: 14)),
+                child: Text(
+                  'Current Cycle: Week $currentProgramWeek, Day $currentProgramDay',
+                  style: const TextStyle(fontSize: 14),
+                ),
               ),
             const SizedBox(height: 12),
             LinearProgressIndicator(
-              value: totalCycleWorkouts > 0 ? (currentCycleProgress / 100) : 0.0,
+              value: totalCycleWorkouts > 0
+                  ? (currentCycleProgress / 100)
+                  : 0.0,
               backgroundColor: Colors.grey.shade300,
               valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
               minHeight: 6,
@@ -244,18 +341,34 @@ class ScheduleScreen extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('${currentCycleProgress.toStringAsFixed(1)}% of current cycle'),
+                Text(
+                  '${currentCycleProgress.toStringAsFixed(1)}% of current cycle',
+                ),
                 if (totalCycleWorkouts > 0)
-                  Text('$completedCycleWorkouts / $totalCycleWorkouts workouts this cycle'),
+                  Text(
+                    '$completedCycleWorkouts / $totalCycleWorkouts workouts this cycle',
+                  ),
               ],
             ),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildOverviewStat('Total Days', '${WorkoutProvider.programCycleLengthDays}', Icons.calendar_today_outlined),
-                _buildOverviewStat('Fit Tests', '${workoutProvider.workouts.where((w) => w.workoutType == 'fit_test').length}', Icons.fitness_center),
-                _buildOverviewStat('Rest Days', '${workoutProvider.workouts.where((w) => w.workoutType == 'rest').length}', Icons.bed_outlined),
+                _buildOverviewStat(
+                  'Total Days',
+                  '${WorkoutProvider.programCycleLengthDays}',
+                  Icons.calendar_today_outlined,
+                ),
+                _buildOverviewStat(
+                  'Fit Tests',
+                  '${workoutProvider.workouts.where((w) => w.workoutType == 'fit_test').length}',
+                  Icons.fitness_center,
+                ),
+                _buildOverviewStat(
+                  'Rest Days',
+                  '${workoutProvider.workouts.where((w) => w.workoutType == 'rest').length}',
+                  Icons.bed_outlined,
+                ),
               ],
             ),
           ],
@@ -270,14 +383,22 @@ class ScheduleScreen extends StatelessWidget {
       children: [
         Icon(icon, color: Colors.red, size: 20),
         const SizedBox(height: 4),
-        Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
         Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
       ],
     );
   }
 
-  Widget _buildWeeklySchedule(BuildContext context, WorkoutProvider workoutProvider) {
-    if (workoutProvider.programStartDate == null) return const SizedBox.shrink(); // Guard
+  Widget _buildWeeklySchedule(
+    BuildContext context,
+    WorkoutProvider workoutProvider,
+  ) {
+    if (workoutProvider.programStartDate == null) {
+      return const SizedBox.shrink(); // Guard
+    }
 
     Map<int, List<Workout>> weeklyWorkouts = {};
     for (int i = 1; i <= WorkoutProvider.programCycleLengthWeeks; i++) {
@@ -288,7 +409,8 @@ class ScheduleScreen extends StatelessWidget {
 
     return Column(
       children: sortedWeeks.map((weekNumberInCycle) {
-        final List<Workout> cycleWeekWorkouts = weeklyWorkouts[weekNumberInCycle] ?? []; // Handle null case
+        final List<Workout> cycleWeekWorkouts =
+            weeklyWorkouts[weekNumberInCycle] ?? []; // Handle null case
         return _buildWeekCard(
           context,
           weekNumberInCycle,
@@ -300,21 +422,24 @@ class ScheduleScreen extends StatelessWidget {
   }
 
   Widget _buildWeekCard(
-      BuildContext context,
-      int weekNumberInCycle,
-      List<Workout> cycleWeekWorkouts,
-      WorkoutProvider workoutProvider,
-      ) {
+    BuildContext context,
+    int weekNumberInCycle,
+    List<Workout> cycleWeekWorkouts,
+    WorkoutProvider workoutProvider,
+  ) {
     if (cycleWeekWorkouts.isEmpty) return const SizedBox.shrink();
     // programStartDate will be non-null here due to checks in _buildScheduleContent and _buildWeeklySchedule
-    final DateTime absoluteStartDateOfProgram = workoutProvider.programStartDate!;
+    final DateTime absoluteStartDateOfProgram =
+        workoutProvider.programStartDate!;
 
     int completedCount = 0;
     // getCurrentCycleNumber can return null if program hasn't started or date is weird.
     // However, if we reach here, programStartDate is set.
     // If today is before programStartDate, getCurrentCycleNumber is null.
     // If today is on or after programStartDate, it returns a valid cycle number (>=1).
-    final int currentCycleNum = workoutProvider.getCurrentCycleNumber() ?? 1; // Default to 1 for display if somehow null
+    final int currentCycleNum =
+        workoutProvider.getCurrentCycleNumber() ??
+        1; // Default to 1 for display if somehow null
 
     // Calculate the start date of this specific week instance in the *current or most relevant cycle*
     // This logic determines which instance of Week X (e.g., Week 1 of Cycle 1, Week 1 of Cycle 2)
@@ -324,23 +449,31 @@ class ScheduleScreen extends StatelessWidget {
     // The most straightforward is to calculate for the *current* cycle.
 
     final DateTime firstDayOfCurrentCycle = absoluteStartDateOfProgram.add(
-        Duration(days: (currentCycleNum - 1) * WorkoutProvider.programCycleLengthDays));
-    final DateTime startDateOfThisWeekInCurrentCycle = firstDayOfCurrentCycle.add(
-        Duration(days: (weekNumberInCycle - 1) * 7));
-
+      Duration(
+        days: (currentCycleNum - 1) * WorkoutProvider.programCycleLengthDays,
+      ),
+    );
+    final DateTime startDateOfThisWeekInCurrentCycle = firstDayOfCurrentCycle
+        .add(Duration(days: (weekNumberInCycle - 1) * 7));
 
     for (final workoutInCycle in cycleWeekWorkouts) {
       final dayOfWeekInCycle = (workoutInCycle.dayNumber - 1) % 7;
-      final actualDateForThisWorkout = startDateOfThisWeekInCurrentCycle.add(Duration(days: dayOfWeekInCycle));
+      final actualDateForThisWorkout = startDateOfThisWeekInCurrentCycle.add(
+        Duration(days: dayOfWeekInCycle),
+      );
       final session = workoutProvider.getSessionForDate(
         actualDateForThisWorkout.toIso8601String().split('T')[0],
       );
-      if (session?.completed == true && (workoutInCycle.workoutType == 'workout' || workoutInCycle.workoutType == 'fit_test')) {
+      if (session?.completed == true &&
+          (workoutInCycle.workoutType == 'workout' ||
+              workoutInCycle.workoutType == 'fit_test')) {
         completedCount++;
       }
     }
 
-    final countableWorkoutsInWeek = cycleWeekWorkouts.where((w) => w.workoutType == 'workout' || w.workoutType == 'fit_test').length;
+    final countableWorkoutsInWeek = cycleWeekWorkouts
+        .where((w) => w.workoutType == 'workout' || w.workoutType == 'fit_test')
+        .length;
     final double weekProgress = countableWorkoutsInWeek > 0
         ? (completedCount / countableWorkoutsInWeek.toDouble()) * 100
         : 0.0;
@@ -358,45 +491,63 @@ class ScheduleScreen extends StatelessWidget {
           style: const TextStyle(fontSize: 14, color: Colors.grey),
         ),
         leading: CircleAvatar(
-          backgroundColor: weekProgress >= 100 ? Colors.green : (weekProgress > 0 ? Colors.orangeAccent : Colors.redAccent),
+          backgroundColor: weekProgress >= 100
+              ? Colors.green
+              : (weekProgress > 0 ? Colors.orangeAccent : Colors.redAccent),
           child: Text(
             '$weekNumberInCycle',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
         children: cycleWeekWorkouts.map((workout) {
           // Calculate the actual date for this workout in the current cycle's instance of this week
           final dayOfWeekInCycle = (workout.dayNumber - 1) % 7;
-          final DateTime actualWorkoutDate = startDateOfThisWeekInCurrentCycle.add(Duration(days: dayOfWeekInCycle));
+          final DateTime actualWorkoutDate = startDateOfThisWeekInCurrentCycle
+              .add(Duration(days: dayOfWeekInCycle));
 
-          return _buildWorkoutListTile(context, workout, workoutProvider, actualWorkoutDate);
+          return _buildWorkoutListTile(
+            context,
+            workout,
+            workoutProvider,
+            actualWorkoutDate,
+          );
         }).toList(),
       ),
     );
   }
 
   Widget _buildWorkoutListTile(
-      BuildContext context,
-      Workout workout,
-      WorkoutProvider workoutProvider,
-      DateTime actualWorkoutDate,
-      ) {
+    BuildContext context,
+    Workout workout,
+    WorkoutProvider workoutProvider,
+    DateTime actualWorkoutDate,
+  ) {
     final dateString = actualWorkoutDate.toIso8601String().split('T')[0];
     final session = workoutProvider.getSessionForDate(dateString);
 
     Widget statusIcon;
     final today = DateTime.now();
-    final normalizedActualDate = DateTime(actualWorkoutDate.year, actualWorkoutDate.month, actualWorkoutDate.day);
+    final normalizedActualDate = DateTime(
+      actualWorkoutDate.year,
+      actualWorkoutDate.month,
+      actualWorkoutDate.day,
+    );
     final normalizedToday = DateTime(today.year, today.month, today.day);
 
     if (session?.completed == true) {
       statusIcon = const Icon(Icons.check_circle, color: Colors.green);
     } else if (session != null && !session.completed) {
       statusIcon = Icon(Icons.cancel_outlined, color: Colors.orange[700]);
-    } else if (workout.workoutType == 'rest') { // If it's a rest day and no session, it's "done" by resting
-      statusIcon = Icon(Icons.check_circle_outline, color: Colors.blue[300]); // Lighter check for rest
-    }
-    else if (normalizedActualDate.isBefore(normalizedToday)) {
+    } else if (workout.workoutType == 'rest') {
+      // If it's a rest day and no session, it's "done" by resting
+      statusIcon = Icon(
+        Icons.check_circle_outline,
+        color: Colors.blue[300],
+      ); // Lighter check for rest
+    } else if (normalizedActualDate.isBefore(normalizedToday)) {
       statusIcon = Icon(Icons.remove_circle_outline, color: Colors.red[700]);
     } else if (normalizedActualDate.isAtSameMomentAs(normalizedToday)) {
       statusIcon = Icon(Icons.radio_button_unchecked, color: Colors.blue[700]);
@@ -410,13 +561,19 @@ class ScheduleScreen extends StatelessWidget {
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Day ${workout.dayNumber} • ${_formatDateForDisplay(actualWorkoutDate)}'), // Removed "of Cycle" to shorten
+          Text(
+            'Day ${workout.dayNumber} • ${_formatDateForDisplay(actualWorkoutDate)}',
+          ), // Removed "of Cycle" to shorten
           if ((session?.notes?.isNotEmpty == true))
             Padding(
               padding: const EdgeInsets.only(top: 2.0),
               child: Text(
                 'Note: ${session?.notes}',
-                style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.grey),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -431,23 +588,36 @@ class ScheduleScreen extends StatelessWidget {
         backgroundColor: _getWorkoutTypeColor(workout.workoutType),
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
       ),
-      onTap: () => _showWorkoutDetailsDialog(context, workout, workoutProvider, session, actualWorkoutDate),
+      onTap: () => _showWorkoutDetailsDialog(
+        context,
+        workout,
+        workoutProvider,
+        session,
+        actualWorkoutDate,
+      ),
     );
   }
 
   void _showWorkoutDetailsDialog(
-      BuildContext context,
-      Workout workout,
-      WorkoutProvider workoutProvider,
-      WorkoutSession? session,
-      DateTime actualWorkoutDate) {
+    BuildContext context,
+    Workout workout,
+    WorkoutProvider workoutProvider,
+    WorkoutSession? session,
+    DateTime actualWorkoutDate,
+  ) {
     // This method seems generally okay from the previous version,
     // ensure `mounted` checks if any further async operations are added inside.
     final today = DateTime.now();
-    final normalizedActualDate = DateTime(actualWorkoutDate.year, actualWorkoutDate.month, actualWorkoutDate.day);
+    final normalizedActualDate = DateTime(
+      actualWorkoutDate.year,
+      actualWorkoutDate.month,
+      actualWorkoutDate.day,
+    );
     final normalizedToday = DateTime(today.year, today.month, today.day);
-    final bool canModify = (normalizedActualDate.isAtSameMomentAs(normalizedToday) || normalizedActualDate.isBefore(normalizedToday)) && workoutProvider.programStartDate != null;
-
+    final bool canModify =
+        (normalizedActualDate.isAtSameMomentAs(normalizedToday) ||
+            normalizedActualDate.isBefore(normalizedToday)) &&
+        workoutProvider.programStartDate != null;
 
     String statusText;
     Color statusColor;
@@ -461,8 +631,7 @@ class ScheduleScreen extends StatelessWidget {
     } else if (workout.workoutType == 'rest') {
       statusText = 'Rest Day';
       statusColor = Colors.blue;
-    }
-    else if (normalizedActualDate.isBefore(normalizedToday)) {
+    } else if (normalizedActualDate.isBefore(normalizedToday)) {
       statusText = 'Missed';
       statusColor = Colors.red;
     } else if (normalizedActualDate.isAtSameMomentAs(normalizedToday)) {
@@ -484,12 +653,23 @@ class ScheduleScreen extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Date: ${_formatDateForDisplay(actualWorkoutDate)} (Day ${workout.dayNumber} of Cycle)'),
-              Text('Type: ${workout.workoutType.replaceAll('_', ' ').toUpperCase()}'),
+              Text(
+                'Date: ${_formatDateForDisplay(actualWorkoutDate)} (Day ${workout.dayNumber} of Cycle)',
+              ),
+              Text(
+                'Type: ${workout.workoutType.replaceAll('_', ' ').toUpperCase()}',
+              ),
               const SizedBox(height: 8),
-              Text('Status: $statusText', style: TextStyle(fontWeight: FontWeight.bold, color: statusColor)),
+              Text(
+                'Status: $statusText',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: statusColor,
+                ),
+              ),
               const SizedBox(height: 10),
-              if (canModify || (session?.notes != null && session!.notes!.isNotEmpty))
+              if (canModify ||
+                  (session?.notes != null && session!.notes!.isNotEmpty))
                 TextField(
                   controller: notesController,
                   decoration: InputDecoration(
@@ -508,34 +688,57 @@ class ScheduleScreen extends StatelessWidget {
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Close'),
           ),
-          if (canModify && workout.workoutType != 'rest') ...[ // Don't show complete/skip for rest days
+          if (canModify && workout.workoutType != 'rest') ...[
+            // Don't show complete/skip for rest days
             if (session?.completed != true)
               ElevatedButton(
                 onPressed: () async {
-                  await workoutProvider.completeWorkout(workout.id, notes: notesController.text, dateOverride: actualWorkoutDate);
-                  if (!dialogContext.mounted) return; // Check mounted before popping
+                  await workoutProvider.completeWorkout(
+                    workout.id,
+                    notes: notesController.text,
+                    dateOverride: actualWorkoutDate,
+                  );
+                  if (!dialogContext.mounted) {
+                    return; // Check mounted before popping
+                  }
                   Navigator.pop(dialogContext);
-                  if (!context.mounted) return; // Check original context for ScaffoldMessenger
+                  if (!context.mounted) {
+                    return; // Check original context for ScaffoldMessenger
+                  }
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('${workout.name} marked as completed.')),
+                    SnackBar(
+                      content: Text('${workout.name} marked as completed.'),
+                    ),
                   );
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                 child: const Text('Complete'),
               ),
             // Show skip if not already skipped, OR if it's marked as completed and user wants to un-complete/skip
-            if (session?.completed == true || (session == null && !normalizedActualDate.isAfter(normalizedToday)))
+            if (session?.completed == true ||
+                (session == null &&
+                    !normalizedActualDate.isAfter(normalizedToday)))
               OutlinedButton(
                 onPressed: () async {
-                  await workoutProvider.skipWorkout(workout.id, reason: notesController.text, dateOverride: actualWorkoutDate);
+                  await workoutProvider.skipWorkout(
+                    workout.id,
+                    reason: notesController.text,
+                    dateOverride: actualWorkoutDate,
+                  );
                   if (!dialogContext.mounted) return;
                   Navigator.pop(dialogContext);
                   if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('${workout.name} marked as skipped/not completed.')),
+                    SnackBar(
+                      content: Text(
+                        '${workout.name} marked as skipped/not completed.',
+                      ),
+                    ),
                   );
                 },
-                child: Text(session?.completed == true ? 'Mark Not Done' : 'Skip Workout'),
+                child: Text(
+                  session?.completed == true ? 'Mark Not Done' : 'Skip Workout',
+                ),
               ),
           ],
         ],
@@ -545,11 +748,14 @@ class ScheduleScreen extends StatelessWidget {
 
   Color _getWorkoutTypeColor(String workoutType) {
     switch (workoutType) {
-      case 'fit_test': return Colors.purple.shade100;
-      case 'rest': return Colors.blue.shade100;
-      case 'workout': return Colors.red.shade100; // Explicitly for 'workout'
-      default: return Colors.grey.shade200; // A more neutral default
+      case 'fit_test':
+        return Colors.purple.shade100;
+      case 'rest':
+        return Colors.blue.shade100;
+      case 'workout':
+        return Colors.red.shade100; // Explicitly for 'workout'
+      default:
+        return Colors.grey.shade200; // A more neutral default
     }
   }
 }
-

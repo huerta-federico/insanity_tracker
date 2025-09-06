@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../providers/fit_test_provider.dart';
 import '../providers/workout_provider.dart';
-// import '../models/fit_test.dart';
 
 /// Progress screen showing workout completion statistics and fit test improvements
 class ProgressScreen extends StatelessWidget {

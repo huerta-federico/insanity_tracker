@@ -52,6 +52,7 @@ class WorkoutProvider extends ChangeNotifier {
   Future<void> setProgramStartDate(
     DateTime startDate, {
     bool shouldReloadData = true,
+    bool autoPopulatePastWorkouts = true,
   }) async {
     _isLoading = true;
     notifyListeners();
@@ -62,6 +63,15 @@ class WorkoutProvider extends ChangeNotifier {
 
     debugPrint('Program Start Date SET to: $_programStartDate');
 
+    if (autoPopulatePastWorkouts && _programStartDate != null) {
+      try {
+        await _autoCompletePastWorkouts(_programStartDate!);
+        debugPrint('Successfully auto-populated past workouts.');
+      } catch (e) {
+        debugPrint('Error auto-populating past workouts: $e');
+        // Decide how to handle this error - maybe notify the user?
+      }
+    }
     if (shouldReloadData) {
       // Data like "today's workout" or "current week" depends on the start date.
       // You might not need to fully re-initialize everything, but for simplicity now:
@@ -71,6 +81,92 @@ class WorkoutProvider extends ChangeNotifier {
 
     _isLoading = false;
     notifyListeners(); // Notify that start date is set and data might be refreshed
+  }
+
+  Future<void> _autoCompletePastWorkouts(DateTime programStartDate) async {
+    if (_workouts.isEmpty) {
+      await _loadWorkouts(); // Ensure workouts are loaded
+      if (_workouts.isEmpty) {
+        debugPrint("Cannot auto-complete: Workouts list is empty.");
+        return;
+      }
+    }
+
+    final today = DateTime.now();
+    final startDateNormalized = DateTime(
+      programStartDate.year,
+      programStartDate.month,
+      programStartDate.day,
+    );
+    final todayNormalized = DateTime(today.year, today.month, today.day);
+
+    // Iterate from the program start date up to today
+    for (int dayOffset = 0; ; dayOffset++) {
+      final currentDateToLog = startDateNormalized.add(
+        Duration(days: dayOffset),
+      );
+      if (currentDateToLog.isAfter(todayNormalized)) {
+        break; // Stop if we've passed today
+      }
+
+      // Determine the day number in the 63-day cycle for this currentDateToLog
+      final daysSinceProgramStartForThisDate = currentDateToLog
+          .difference(startDateNormalized)
+          .inDays;
+      final dayInCycle =
+          (daysSinceProgramStartForThisDate % programCycleLengthDays) +
+          1; // 1-63
+
+      Workout? scheduledWorkout;
+      try {
+        scheduledWorkout = _workouts.firstWhere(
+          (w) => w.dayNumber == dayInCycle,
+        );
+      } catch (e) {
+        debugPrint(
+          "WorkoutProvider: Could not find workout for day $dayInCycle in the schedule for auto-completion.",
+        );
+        continue; // Skip this day if no workout is defined
+      }
+
+      // Skip auto-completing 'rest' days as they don't typically have a "completed" session
+      // Or, if you want to log them as 'completed' (which is unusual for rest), remove this check.
+      if (scheduledWorkout.workoutType == 'rest') {
+        debugPrint(
+          "Skipping auto-completion for rest day: ${scheduledWorkout.name} on ${currentDateToLog.toIso8601String().split('T')[0]}",
+        );
+        continue;
+      }
+
+      final dateString = currentDateToLog.toIso8601String().split('T')[0];
+
+      // Check if a session already exists for this date to avoid duplicates or overwriting
+      WorkoutSession? existingSession = await _databaseService
+          .getWorkoutSessionByDate(dateString);
+
+      if (existingSession == null) {
+        WorkoutSession newSession = WorkoutSession(
+          workoutId: scheduledWorkout.id,
+          date: dateString,
+          completed: true, // Mark as completed
+          notes: 'Auto-completed', // Optional note
+        );
+        await _databaseService.insertWorkoutSession(newSession);
+        debugPrint('Auto-completed: ${scheduledWorkout.name} on $dateString');
+      } else {
+        // Optional: If a session exists, you might want to update it to completed if it wasn't.
+        // For simplicity now, we only insert if it doesn't exist.
+        // if (!existingSession.completed) {
+        //   WorkoutSession updatedSession = existingSession.copyWith(completed: true, notes: existingSession.notes ?? 'Auto-completed (updated)');
+        //   await _databaseService.updateWorkoutSession(updatedSession);
+        //   debugPrint('Updated existing session to completed: ${scheduledWorkout.name} on $dateString');
+        // } else {
+        debugPrint(
+          'Session already exists (or already completed) for ${scheduledWorkout.name} on $dateString. Skipping auto-completion for this day.',
+        );
+        // }
+      }
+    }
   }
 
   // --- Reset Program Start Date (Optional - for testing or if user makes a mistake) ---
@@ -345,7 +441,6 @@ class WorkoutProvider extends ChangeNotifier {
     if (currentDayInCycle == null || currentWeekInCycle == null) return [];
 
     // Calculate the start date of the current week in the current cycle
-    final daysIntoCurrentCycle = currentDayInCycle - 1;
     final daysFromCycleStartToWeekStart = ((currentWeekInCycle - 1) * 7);
 
     final currentCycleNumber = getCurrentCycleNumber() ?? 1;
@@ -448,7 +543,6 @@ class WorkoutProvider extends ChangeNotifier {
 
     int completedInCurrentCycle = 0;
     int skippedInCurrentCycle = 0;
-    int scheduledAndPassedInCurrentCycle = 0;
 
     for (int i = 0; i < programCycleLengthDays; i++) {
       final dateInCycle = currentCycleStartDate.add(Duration(days: i));
@@ -475,7 +569,6 @@ class WorkoutProvider extends ChangeNotifier {
 
       // Count as a day that has passed or is today within the actual workout days
       if (dateInCycle.isBefore(today) || dateInCycle.isAtSameMomentAs(today)) {
-        scheduledAndPassedInCurrentCycle++;
         final session = getSessionForDate(
           dateString,
         ); // getSessionForDate should be efficient

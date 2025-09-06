@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../models/workout_session.dart';
 import '../providers/workout_provider.dart';
 import '../models/workout.dart';
-import 'data_import_screen.dart';
 
 /// Home screen showing today's workout and quick actions
 class HomeScreen extends StatelessWidget {
@@ -14,29 +13,6 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Insanity Tracker'),
-        actions: [
-          PopupMenuButton(
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'import',
-                child: ListTile(
-                  leading: Icon(Icons.upload),
-                  title: Text('Import Historical Data'),
-                ),
-              ),
-            ],
-            onSelected: (value) {
-              if (value == 'import') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const DataImportScreen(),
-                  ),
-                );
-              }
-            },
-          ),
-        ],
       ),
       body: Consumer<WorkoutProvider>(
         builder: (context, workoutProvider, child) {
