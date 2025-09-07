@@ -181,7 +181,7 @@ class _OverallStatsCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: _StatItem(
-                    label: 'Completed',
+                    label: 'Total workouts',
                     value: '$completedWorkouts',
                     unit: 'workouts',
                     icon: Icons.check_circle,
@@ -333,6 +333,8 @@ class _FitTestProgressChartState extends State<_FitTestProgressChart> {
     if (widget.fitTests.length > maxLabelsToShow) {
       labelInterval = (widget.fitTests.length / maxLabelsToShow).ceilToDouble();
     }
+    double calculatedMaxX = (widget.fitTests.length - 1).toDouble();
+    double maxXPadding = widget.fitTests.isNotEmpty ? 0.5 : 0.0;
 
     return LineChartData(
       gridData: const FlGridData(show: true),
@@ -346,16 +348,25 @@ class _FitTestProgressChartState extends State<_FitTestProgressChart> {
             interval: labelInterval,
             getTitlesWidget: (value, meta) {
               final index = value.toInt();
-              if (index >= 0 &&
-                  index < widget.fitTests.length &&
-                  (index % labelInterval.toInt() == 0 ||
-                      labelInterval == 1.0)) {
-                return Padding(
-                  padding: const EdgeInsets.only(top: 8.0),
-                  child: Text('Test ${widget.fitTests[index].testNumber}'),
-                );
+
+              // --- Start of refined logic ---
+              // Only show titles that correspond to an actual data point index.
+              if (index >= 0 && index < widget.fitTests.length) {
+                // Ensure 'value' closely matches an actual data point's x-coordinate (which is 'index').
+                // This helps avoid rendering labels for interpolated title positions near maxX.
+                if ((value - index).abs() < 0.01) {
+                  // Check if 'value' is very close to an integer 'index'
+                  if (index % labelInterval.toInt() == 0 ||
+                      labelInterval == 1.0) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Text('Test ${widget.fitTests[index].testNumber}'),
+                    );
+                  }
+                }
               }
-              return const SizedBox.shrink();
+              // --- End of refined logic ---
+              return const SizedBox.shrink(); // Return empty for all other cases
             },
             reservedSize: 30,
           ),
@@ -380,12 +391,12 @@ class _FitTestProgressChartState extends State<_FitTestProgressChart> {
           dotData: const FlDotData(show: true),
           belowBarData: BarAreaData(
             show: true,
-            color: Colors.red.withValues(alpha: 0.1),
+            color: Colors.red.withAlpha(30),
           ),
         ),
       ],
       minX: 0,
-      maxX: (widget.fitTests.length - 1).toDouble(),
+      maxX: calculatedMaxX + maxXPadding,
     );
   }
 }
@@ -496,12 +507,6 @@ class _WorkoutCompletionChart extends StatelessWidget {
             const Text(
               'Current Cycle Workout Status',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "$totalWorkoutsInCycle 'Workout' Days This Cycle",
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
             SizedBox(
@@ -739,7 +744,11 @@ class _StartDateDisplay extends StatelessWidget {
           const Text('Program Started:', style: TextStyle(fontSize: 14)),
           const SizedBox(width: 8),
           Text(
-            UtilsProvider.formatDateForDisplay(workoutProvider.programStartDate),
+            UtilsProvider.formatDate(
+              UtilsProvider.formatDateForDisplay(
+                workoutProvider.programStartDate,
+              ),
+            ),
             style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,

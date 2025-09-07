@@ -6,8 +6,18 @@ class UtilsProvider {
   /// Month abbreviations for formatting dates.
   /// Using a static const for better memory efficiency.
   static const List<String> _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   /// Formats a date string into a human-readable format: "DD MMM YYYY"

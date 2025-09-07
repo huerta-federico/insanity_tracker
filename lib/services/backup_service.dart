@@ -1,165 +1,223 @@
 // lib/services/backup_service.dart
 import 'dart:io';
-import 'package:file_picker/file_picker.dart'; // Import file_picker
-import 'package:flutter/foundation.dart'; // For kDebugMode
-import 'package:path/path.dart' as p; // For joining paths robustly
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart'; // Main import
-import 'package:sqflite/sqflite.dart';
+import 'package:share_plus/share_plus.dart';
 import '../services/database_service.dart';
 
+/// Service responsible for backing up and restoring the application database.
+///
+/// This service provides functionality to:
+/// - Export database as a backup file via share sheet
+/// - Import database from a backup file
+/// - Handle database file operations safely
 class BackupService {
-  final DatabaseService _dbService = DatabaseService.instance;
+  static const String _backupFilePrefix = 'insanity_tracker_backup';
+  static const String _backupFileExtension = 'db';
 
-  Future<File?> _createActualBackupFile() async {
+  final DatabaseService _databaseService = DatabaseService.instance;
+
+  /// Creates a backup file of the current database.
+  ///
+  /// Returns the backup [File] if successful, null otherwise.
+  /// The backup file is created in the application documents directory
+  /// with a timestamp in the filename.
+  Future<File?> _createBackupFile() async {
     try {
-      final Database db = await _dbService.database;
-      final String originalDbPath = db.path;
-      final File originalDbFile = File(originalDbPath);
+      // Get database and verify it exists
+      final database = await _databaseService.database;
+      final originalFile = File(database.path);
 
-      if (!await originalDbFile.exists()) {
-        if (kDebugMode) {
-          print('Original database file does not exist at: $originalDbPath');
-        }
+      if (!await originalFile.exists()) {
+        _logDebug('Database file not found at: ${database.path}');
         return null;
       }
 
-      final directory = await getApplicationDocumentsDirectory();
-      final String timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').split('.')[0];
-      final String backupFileName = 'insanity_tracker_backup_$timestamp.db';
-      final String backupFilePath = p.join(directory.path, backupFileName);
-      final File backupFile = File(backupFilePath);
+      // Prepare backup file path
+      final backupFile = await _generateBackupFile();
 
-      await originalDbFile.copy(backupFile.path);
+      // Copy database to backup location
+      await originalFile.copy(backupFile.path);
 
-      if (kDebugMode) {
-        print('Backup file created at: ${backupFile.path} from $originalDbPath');
-      }
+      _logDebug('Backup created: ${backupFile.path}');
       return backupFile;
     } catch (e, stackTrace) {
-      if (kDebugMode) {
-        print('Error creating backup file: $e');
-        print('Stack trace: $stackTrace');
-      }
+      _logError('Failed to create backup file', e, stackTrace);
       return null;
     }
   }
 
-  Future<bool> exportDatabaseViaShareSheet() async {
+  /// Generates a backup file with timestamp in the documents directory.
+  Future<File> _generateBackupFile() async {
+    final directory = await getApplicationDocumentsDirectory();
+    final timestamp = _generateTimestamp();
+    final filename = '${_backupFilePrefix}_$timestamp.$_backupFileExtension';
+    return File(p.join(directory.path, filename));
+  }
+
+  /// Generates a timestamp string safe for use in filenames.
+  String _generateTimestamp() {
+    return DateTime.now()
+        .toIso8601String()
+        .split('.')[0] // Remove milliseconds
+        .replaceAll(':', '-'); // Replace colons for file system compatibility
+  }
+
+  /// Exports the database via the system share sheet.
+  ///
+  /// Returns true if the share sheet was successfully presented,
+  /// false otherwise. Note that user dismissal of the share sheet
+  /// returns false as the operation wasn't completed.
+  Future<bool> exportDatabase() async {
     try {
-      final File? backupFile = await _createActualBackupFile();
+      final backupFile = await _createBackupFile();
 
-      if (backupFile != null && await backupFile.exists()) {
-        final xFile = XFile(backupFile.path);
-
-        final params = ShareParams(
-          text: 'Insanity Tracker Data Backup (${p.basename(backupFile.path)})',
-          subject: 'Insanity Tracker Backup - ${DateTime.now().toLocal().toString().substring(0, 10)}',
-          files: [xFile],
-        );
-
-        final ShareResult result = await SharePlus.instance.share(params);
-
-        if (result.status == ShareResultStatus.success) {
-          if (kDebugMode) print('Database backup shared successfully.');
-          return true;
-        } else if (result.status == ShareResultStatus.dismissed) {
-          if (kDebugMode) print('Share sheet dismissed by user.');
-          // It's not an error, but the operation wasn't completed.
-          // Depending on desired behavior, you might still want to return false or a specific status.
-          return false;
-        } else {
-          if (kDebugMode) print('Sharing failed with status: ${result.status}');
-          return false;
-        }
-      } else {
-        if (kDebugMode) print('Backup file could not be created or was not found.');
+      if (backupFile == null || !await backupFile.exists()) {
+        _logDebug('Backup file creation failed or file not found');
         return false;
       }
+
+      return await _shareBackupFile(backupFile);
     } catch (e, stackTrace) {
-      if (kDebugMode) {
-        print('Error during database export: $e');
-        print('Stack trace: $stackTrace');
-      }
+      _logError('Database export failed', e, stackTrace);
       return false;
     }
   }
 
-  // --- NEW: Method to import database ---
-  Future<bool> importDatabase() async {
-    try {
-      // 1. Pick the .db file
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['db'], // Allow only .db files
-      );
+  /// Shares the backup file using the system share sheet.
+  Future<bool> _shareBackupFile(File backupFile) async {
+    final xFile = XFile(backupFile.path);
+    final filename = p.basename(backupFile.path);
+    final dateString = DateTime.now().toLocal().toString().substring(0, 10);
 
-      if (result != null && result.files.single.path != null) {
-        File pickedFile = File(result.files.single.path!);
+    final shareParams = ShareParams(
+      text: 'Insanity Tracker Data Backup ($filename)',
+      subject: 'Insanity Tracker Backup - $dateString',
+      files: [xFile],
+    );
 
-        if (!await pickedFile.exists()) {
-          if (kDebugMode) {
-            print('Picked file does not exist: ${pickedFile.path}');
-          }
-          return false; // Or throw an error to be caught by UI
-        }
+    final result = await SharePlus.instance.share(shareParams);
 
-        // 2. Get the path where the app's current database should be
-        String appDbPath = await _dbService.getDatabasePath();
-
-        // 3. Close current database connection (VERY IMPORTANT)
-        await _dbService.close();
-
-        // 4. Replace the current database file
-        //    First, delete the old one if it exists (or rename as a backup for safety)
-        File currentDbFile = File(appDbPath);
-        if (await currentDbFile.exists()) {
-          await currentDbFile.delete();
-          if (kDebugMode) {
-            print('Old database file deleted: $appDbPath');
-          }
-        }
-        // Then, copy the picked file to the app's database location
-        await pickedFile.copy(appDbPath);
-        if (kDebugMode) {
-          print('Database file imported from ${pickedFile.path} to $appDbPath');
-        }
-
-        // 5. Re-initialize the database connection.
-        //    The DatabaseService.database getter will handle re-opening
-        //    the new file on next access because we set _database to null in close().
-        //    Optionally, you can call a specific reinitialize method if you prefer.
-        await _dbService.reinitializeDatabase();
-        if (kDebugMode) {
-          print('Database re-initialized after import.');
-        }
-
+    switch (result.status) {
+      case ShareResultStatus.success:
+        _logDebug('Database backup shared successfully');
         return true;
-      } else {
-        // User canceled the picker or file path was null
-        if (kDebugMode) {
-          print('File picking canceled or no file selected.');
-        }
+      case ShareResultStatus.dismissed:
+        _logDebug('Share sheet dismissed by user');
+        return false;
+      default:
+        _logDebug('Share failed with status: ${result.status}');
+        return false;
+    }
+  }
+
+  /// Imports a database from a user-selected backup file.
+  ///
+  /// Returns true if the import was successful, false otherwise.
+  /// This operation will replace the current database entirely.
+  ///
+  /// The process:
+  /// 1. User selects a .db file
+  /// 2. Current database connection is closed
+  /// 3. Current database file is replaced with selected file
+  /// 4. Database connection is re-initialized
+  Future<bool> importDatabase() async {
+    File? selectedFile;
+
+    try {
+      // Step 1: Let user select backup file
+      selectedFile = await _selectBackupFile();
+      if (selectedFile == null) {
+        _logDebug('No backup file selected');
         return false;
       }
+
+      // Step 2: Validate selected file
+      if (!await selectedFile.exists()) {
+        _logDebug('Selected backup file does not exist: ${selectedFile.path}');
+        return false;
+      }
+
+      // Step 3: Replace current database
+      await _replaceCurrentDatabase(selectedFile);
+
+      // Step 4: Re-initialize database connection
+      await _databaseService.reinitializeDatabase();
+
+      _logDebug('Database import completed successfully');
+      return true;
     } catch (e, stackTrace) {
-      if (kDebugMode) {
-        print('Error importing database: $e');
+      _logError('Database import failed', e, stackTrace);
+
+      // Attempt to recover database connection
+      await _attemptDatabaseRecovery();
+      return false;
+    }
+  }
+
+  /// Prompts user to select a backup file.
+  Future<File?> _selectBackupFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: [_backupFileExtension],
+    );
+
+    if (result?.files.single.path == null) {
+      return null;
+    }
+
+    return File(result!.files.single.path!);
+  }
+
+  /// Replaces the current database with the selected backup file.
+  Future<void> _replaceCurrentDatabase(File backupFile) async {
+    // Close current database connection first
+    await _databaseService.close();
+
+    // Get current database path and file
+    final currentDbPath = await _databaseService.getDatabasePath();
+    final currentDbFile = File(currentDbPath);
+
+    // Remove existing database file if present
+    if (await currentDbFile.exists()) {
+      await currentDbFile.delete();
+      _logDebug('Existing database file deleted');
+    }
+
+    // Copy backup file to database location
+    await backupFile.copy(currentDbPath);
+    _logDebug('Backup file copied to database location');
+  }
+
+  /// Attempts to recover the database connection after a failed import.
+  Future<void> _attemptDatabaseRecovery() async {
+    try {
+      await _databaseService.reinitializeDatabase();
+      _logDebug('Database connection recovered after import failure');
+    } catch (e) {
+      _logError('Failed to recover database connection', e);
+    }
+  }
+
+  /// Logs debug messages when in debug mode.
+  void _logDebug(String message) {
+    if (kDebugMode) {
+      //print('[BackupService] $message');
+    }
+  }
+
+  /// Logs error messages with stack traces when in debug mode.
+  void _logError(String message, dynamic error, [StackTrace? stackTrace]) {
+    if (kDebugMode) {
+      /*
+      print('[BackupService] ERROR: $message');
+      print('Error: $error');
+      if (stackTrace != null) {
         print('Stack trace: $stackTrace');
       }
-      // Attempt to restore the database connection if something went wrong after closing it
-      // This is a safety net.
-      try {
-        await _dbService.reinitializeDatabase();
-        if (kDebugMode) {
-          print('Database re-initialized after import error.');
-        }
-      } catch (reinitError) {
-        if (kDebugMode) {
-          print('Failed to re-initialize database after import error: $reinitError');
-        }
-      }
-      return false;
+      */
     }
   }
 }

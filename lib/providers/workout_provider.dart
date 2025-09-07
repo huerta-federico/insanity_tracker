@@ -4,6 +4,10 @@ import '../models/workout.dart';
 import '../models/workout_session.dart';
 import '../services/database_service.dart';
 
+/// Provider that manages workout program state and progress tracking.
+///
+/// This provider handles workout data, session tracking, program progress,
+/// and provides cached computations for performance optimization.
 class WorkoutProvider extends ChangeNotifier {
   final DatabaseService _databaseService = DatabaseService.instance;
 
@@ -12,6 +16,7 @@ class WorkoutProvider extends ChangeNotifier {
   List<WorkoutSession> _sessions = [];
   bool _isLoading = false;
   DateTime? _programStartDate;
+  String? _lastError;
 
   // Cache for expensive computations
   Map<String, dynamic>? _cachedProgress;
@@ -24,17 +29,20 @@ class WorkoutProvider extends ChangeNotifier {
   // Cache invalidation tracking
   DateTime? _lastCacheUpdate;
   String? _lastSessionsHash;
+  bool _cacheInvalidated = false;
 
   // Constants
   static const int programCycleLengthDays = 63;
   static const int programCycleLengthWeeks = 9;
   static const String _programStartDateKey = 'programStartDate';
+  static const int _cacheValidityMinutes = 5;
 
   // Getters
   List<Workout> get workouts => List.unmodifiable(_workouts);
   List<WorkoutSession> get sessions => List.unmodifiable(_sessions);
   bool get isLoading => _isLoading;
   DateTime? get programStartDate => _programStartDate;
+  String? get lastError => _lastError;
 
   @override
   void dispose() {
@@ -42,53 +50,31 @@ class WorkoutProvider extends ChangeNotifier {
     super.dispose();
   }
 
+  /// Initializes the provider by loading all necessary data.
+  /// Should be called once when the app starts.
   Future<void> initialize() async {
-    debugPrint("WorkoutProvider: INITIALIZE START");
+    //debugPrint("WorkoutProvider: INITIALIZE START");
     if (_isLoading) {
-      debugPrint("WorkoutProvider: Already loading, skipping initialization.");
+      //debugPrint("WorkoutProvider: Already loading, skipping initialization.");
       return;
-    }// Prevent multiple initializations
+    }
 
-    await _setLoadingState(true);
-
-    try {
-      await Future.wait([
-        _loadProgramStartDate(),
-        _loadWorkouts(),
-      ]);
+    await _performOperation(() async {
+      await Future.wait([_loadProgramStartDate(), _loadWorkouts()]);
       await _loadWorkoutSessions();
-      _invalidateCaches();
-    } catch (e) {
-      debugPrint('Error initializing WorkoutProvider: $e');
-      _programStartDate = null;
-      _workouts = [];
-      _sessions = [];
-    } finally {
-      await _setLoadingState(false);
-    }
+      _refreshCaches();
+    });
+
+    //debugPrint("WorkoutProvider: INITIALIZE COMPLETE");
   }
 
-  Future<void> _loadProgramStartDate() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final startDateString = prefs.getString(_programStartDateKey);
-      if (startDateString != null) {
-        _programStartDate = DateTime.tryParse(startDateString);
-      }
-    } catch (e) {
-      debugPrint('Error loading program start date: $e');
-      _programStartDate = null;
-    }
-  }
-
+  /// Sets the program start date and optionally populates past workouts.
   Future<void> setProgramStartDate(
-      DateTime startDate, {
-        bool shouldReloadData = true,
-        bool autoPopulatePastWorkouts = true,
-      }) async {
-    await _setLoadingState(true);
-
-    try {
+    DateTime startDate, {
+    bool shouldReloadData = true,
+    bool autoPopulatePastWorkouts = true,
+  }) async {
+    await _performOperation(() async {
       // Clear existing sessions
       await _clearExistingSessions();
 
@@ -103,12 +89,323 @@ class WorkoutProvider extends ChangeNotifier {
         await _reloadData();
       }
 
-      _invalidateCaches();
+      _refreshCaches();
+    });
+  }
+
+  /// Clears the program start date and all associated data.
+  Future<void> clearProgramStartDate() async {
+    await _performOperation(() async {
+      _programStartDate = null;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_programStartDateKey);
+
+      await _databaseService.deleteAllWorkoutSessions();
+      _sessions = [];
+      _refreshCaches();
+    });
+  }
+
+  /// Reconciles start date from imported workout session data.
+  Future<bool> reconcileStartDateFromImportedData() async {
+    if (_sessions.isEmpty) {
+      /*
+      debugPrint(
+        "WorkoutProvider: No sessions found to infer start date after import.",
+      );
+      */
+      return false;
+    }
+
+    final sortedSessions = List<WorkoutSession>.from(
+      _sessions,
+    )..sort((a, b) => DateTime.parse(a.date).compareTo(DateTime.parse(b.date)));
+
+    final earliestDate = DateTime.parse(sortedSessions.first.date);
+    final potentialStartDate = _findMondayBefore(earliestDate);
+
+    if (_isDateDifferent(_programStartDate, potentialStartDate)) {
+      await _performOperation(() async {
+        await _updateProgramStartDate(potentialStartDate);
+        _refreshCaches();
+      });
+      return true;
+    }
+
+    return true;
+  }
+
+  // Workout session management
+
+  /// Marks a workout as completed.
+  Future<void> completeWorkout(
+    int workoutId, {
+    String? notes,
+    DateTime? dateOverride,
+  }) async {
+    await _updateWorkoutSession(
+      workoutId: workoutId,
+      completed: true,
+      notes: notes,
+      dateOverride: dateOverride,
+    );
+  }
+
+  /// Marks a workout as skipped.
+  Future<void> skipWorkout(
+    int workoutId, {
+    String? reason,
+    DateTime? dateOverride,
+  }) async {
+    await _updateWorkoutSession(
+      workoutId: workoutId,
+      completed: false,
+      notes: reason,
+      dateOverride: dateOverride,
+    );
+  }
+
+  /// Resets a workout session.
+  Future<void> resetWorkout(
+    int workoutId, {
+    String? reason,
+    DateTime? dateOverride,
+  }) async {
+    await _updateWorkoutSession(
+      workoutId: workoutId,
+      completed: false,
+      notes: '',
+      dateOverride: dateOverride,
+    );
+  }
+
+  /// Bulk upsert multiple workout sessions.
+  Future<void> bulkUpsertWorkoutSessions(
+    List<WorkoutSession> sessionsToProcess,
+  ) async {
+    if (sessionsToProcess.isEmpty) return;
+
+    await _performOperation(() async {
+      // Process in batches for better performance
+      const batchSize = 20;
+      for (int i = 0; i < sessionsToProcess.length; i += batchSize) {
+        final batch = sessionsToProcess.skip(i).take(batchSize);
+        await _processSessions(batch.toList());
+      }
+
+      await _loadWorkoutSessions();
+      _refreshCaches();
+    });
+  }
+
+  // Data retrieval methods with caching
+
+  /// Gets the current program day within the cycle (1-63).
+  int? getCurrentProgramDayInCycle() {
+    if (_shouldUseCachedValue(_cachedCurrentDayInCycle)) {
+      return _cachedCurrentDayInCycle;
+    }
+
+    _cachedCurrentDayInCycle = _calculateCurrentProgramDayInCycle();
+    _updateCacheTimestamp();
+    return _cachedCurrentDayInCycle;
+  }
+
+  /// Gets the current program week within the cycle (1-9).
+  int? getCurrentProgramWeekInCycle() {
+    if (_shouldUseCachedValue(_cachedCurrentWeekInCycle)) {
+      return _cachedCurrentWeekInCycle;
+    }
+
+    final currentDay = getCurrentProgramDayInCycle();
+    _cachedCurrentWeekInCycle = currentDay == null
+        ? null
+        : ((currentDay - 1) / 7).floor() + 1;
+
+    _updateCacheTimestamp();
+    return _cachedCurrentWeekInCycle;
+  }
+
+  /// Gets the current cycle number (1, 2, 3, ...).
+  int? getCurrentCycleNumber() {
+    if (_shouldUseCachedValue(_cachedCurrentCycleNumber)) {
+      return _cachedCurrentCycleNumber;
+    }
+
+    _cachedCurrentCycleNumber = _calculateCurrentCycleNumber();
+    _updateCacheTimestamp();
+    return _cachedCurrentCycleNumber;
+  }
+
+  /// Gets overall program progress statistics.
+  Map<String, double> getOverallProgress() {
+    if (_shouldUseCachedValue(_cachedProgress)) {
+      return Map<String, double>.from(_cachedProgress!);
+    }
+
+    _cachedProgress = _calculateOverallProgress();
+    _updateCacheTimestamp();
+    return Map<String, double>.from(_cachedProgress!);
+  }
+
+  /// Gets current cycle session statistics (completed, skipped, remaining).
+  Map<String, int> getCurrentCycleSessionStats() {
+    //debugPrint("WorkoutProvider: getCurrentCycleSessionStats CALLED");
+
+    if (_shouldUseCachedValue(_cachedCycleStats)) {
+      /*
+      debugPrint(
+        "WorkoutProvider: Using cached cycle stats: $_cachedCycleStats",
+      );
+      */
+      return Map<String, int>.from(_cachedCycleStats!);
+    }
+
+    //debugPrint("WorkoutProvider: Calculating fresh cycle stats");
+    _cachedCycleStats = _calculateCurrentCycleSessionStats();
+    _updateCacheTimestamp();
+
+    //debugPrint("WorkoutProvider: Fresh cycle stats: $_cachedCycleStats");
+    return Map<String, int>.from(_cachedCycleStats!);
+  }
+
+  /// Gets workout sessions for the current week.
+  List<WorkoutSession> getThisWeekSessions() {
+    if (_shouldUseCachedValue(_cachedThisWeekSessions)) {
+      return List<WorkoutSession>.from(_cachedThisWeekSessions!);
+    }
+
+    _cachedThisWeekSessions = _calculateThisWeekSessions();
+    _updateCacheTimestamp();
+    return List<WorkoutSession>.from(_cachedThisWeekSessions!);
+  }
+
+  // Business logic methods
+
+  /// Gets today's scheduled workout.
+  Workout? getTodaysWorkout() {
+    if (_workouts.isEmpty) return null;
+    final currentDay = getCurrentProgramDayInCycle();
+    if (currentDay == null) return null;
+
+    try {
+      return _workouts.firstWhere((w) => w.dayNumber == currentDay);
     } catch (e) {
-      debugPrint('Error setting program start date: $e');
+      //debugPrint("WorkoutProvider: Could not find workout for day $currentDay");
+      return null;
+    }
+  }
+
+  /// Gets all workouts for a specific week in the cycle.
+  List<Workout> getWeekWorkouts(int weekInCycle) {
+    if (weekInCycle < 1 || weekInCycle > programCycleLengthWeeks) {
+      return [];
+    }
+    return _workouts
+        .where((workout) => workout.weekNumber == weekInCycle)
+        .toList();
+  }
+
+  /// Gets the workout session for a specific date.
+  WorkoutSession? getSessionForDate(String dateString) {
+    try {
+      return _sessions.firstWhere((session) => session.date == dateString);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Gets the scheduled workout for a specific date.
+  Workout? getWorkoutForDate(DateTime date) {
+    if (_programStartDate == null || _workouts.isEmpty) return null;
+
+    final dateNormalized = _normalizeDatetime(date);
+    final startDateNormalized = _normalizeDatetime(_programStartDate!);
+
+    if (dateNormalized.isBefore(startDateNormalized)) return null;
+
+    final daysSinceProgramStart = dateNormalized
+        .difference(startDateNormalized)
+        .inDays;
+    final dayInCycle = (daysSinceProgramStart % programCycleLengthDays) + 1;
+
+    try {
+      return _workouts.firstWhere((w) => w.dayNumber == dayInCycle);
+    } catch (e) {
+      //debugPrint("WorkoutProvider: Could not find workout for day $dayInCycle");
+      return null;
+    }
+  }
+
+  /// Clears any error state.
+  void clearError() {
+    if (_lastError != null) {
+      _lastError = null;
+      notifyListeners();
+    }
+  }
+
+  // Private methods
+
+  /// Wrapper for operations that handles loading state and error management.
+  Future<void> _performOperation(Future<void> Function() operation) async {
+    if (_isLoading) return; // Prevent concurrent operations
+
+    _setLoadingState(true);
+    _lastError = null;
+
+    try {
+      await operation();
+    } catch (e) {
+      _lastError = e.toString();
+      //debugPrint('WorkoutProvider error: $e');
+
+      // Ensure we maintain valid state on error
+      _workouts = _workouts.isEmpty ? [] : _workouts;
+      _sessions = _sessions.isEmpty ? [] : _sessions;
+
       rethrow;
     } finally {
-      await _setLoadingState(false);
+      _setLoadingState(false);
+    }
+  }
+
+  Future<void> _loadProgramStartDate() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final startDateString = prefs.getString(_programStartDateKey);
+      if (startDateString != null) {
+        _programStartDate = DateTime.tryParse(startDateString);
+      }
+    } catch (e) {
+      //debugPrint('Error loading program start date: $e');
+      _programStartDate = null;
+    }
+  }
+
+  Future<void> _loadWorkouts() async {
+    try {
+      _workouts = await _databaseService.getAllWorkouts();
+      _workouts.sort((a, b) => a.dayNumber.compareTo(b.dayNumber));
+    } catch (e) {
+      //debugPrint('Error loading workouts: $e');
+      _workouts = [];
+    }
+  }
+
+  Future<void> _loadWorkoutSessions() async {
+    try {
+      final newSessions = await _databaseService.getAllWorkoutSessions();
+      final newHash = _calculateSessionsHash(newSessions);
+
+      if (_lastSessionsHash != newHash) {
+        _sessions = newSessions;
+        _lastSessionsHash = newHash;
+        _invalidateComputedCaches(); // Only invalidate computed caches, not basic data
+      }
+    } catch (e) {
+      //debugPrint('Error loading workout sessions: $e');
+      _sessions = [];
     }
   }
 
@@ -117,7 +414,7 @@ class WorkoutProvider extends ChangeNotifier {
       await _databaseService.deleteAllWorkoutSessions();
       _sessions = [];
     } catch (e) {
-      debugPrint('Error clearing existing workout sessions: $e');
+      //debugPrint('Error clearing existing workout sessions: $e');
       _sessions = [];
     }
   }
@@ -129,17 +426,14 @@ class WorkoutProvider extends ChangeNotifier {
   }
 
   Future<void> _reloadData() async {
-    await Future.wait([
-      _loadWorkouts(),
-      _loadWorkoutSessions(),
-    ]);
+    await Future.wait([_loadWorkouts(), _loadWorkoutSessions()]);
   }
 
   Future<void> _autoCompletePastWorkouts(DateTime programStartDate) async {
     if (_workouts.isEmpty) {
       await _loadWorkouts();
       if (_workouts.isEmpty) {
-        debugPrint("Cannot auto-complete: Workouts list is empty.");
+        //debugPrint("Cannot auto-complete: Workouts list is empty.");
         return;
       }
     }
@@ -147,7 +441,6 @@ class WorkoutProvider extends ChangeNotifier {
     final today = _getTodayNormalized();
     final startDateNormalized = _normalizeDatetime(programStartDate);
 
-    // Process in batches to avoid blocking the UI
     final sessionsToInsert = <WorkoutSession>[];
 
     for (int dayOffset = 0; ; dayOffset++) {
@@ -155,19 +448,26 @@ class WorkoutProvider extends ChangeNotifier {
 
       if (!currentDate.isBefore(today)) break;
 
-      final workout = await _getWorkoutForDayOffset(dayOffset, startDateNormalized);
+      final workout = await _getWorkoutForDayOffset(
+        dayOffset,
+        startDateNormalized,
+      );
       if (workout == null || workout.workoutType == 'rest') continue;
 
       final dateString = _dateToString(currentDate);
-      final existingSession = await _databaseService.getWorkoutSessionByDate(dateString);
+      final existingSession = await _databaseService.getWorkoutSessionByDate(
+        dateString,
+      );
 
       if (existingSession == null) {
-        sessionsToInsert.add(WorkoutSession(
-          workoutId: workout.id,
-          date: dateString,
-          completed: true,
-          notes: 'Auto-completed',
-        ));
+        sessionsToInsert.add(
+          WorkoutSession(
+            workoutId: workout.id,
+            date: dateString,
+            completed: true,
+            notes: 'Auto-completed',
+          ),
+        );
       }
 
       // Process in batches of 10
@@ -189,246 +489,6 @@ class WorkoutProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> reconcileStartDateFromImportedData() async {
-    if (_sessions.isEmpty) {
-      debugPrint("WorkoutProvider: No sessions found to infer start date after import.");
-      return false;
-    }
-
-    final sortedSessions = List<WorkoutSession>.from(_sessions)
-      ..sort((a, b) => DateTime.parse(a.date).compareTo(DateTime.parse(b.date)));
-
-    final earliestDate = DateTime.parse(sortedSessions.first.date);
-    final potentialStartDate = _findMondayBefore(earliestDate);
-
-    if (_isDateDifferent(_programStartDate, potentialStartDate)) {
-      await _setLoadingState(true);
-
-      try {
-        await _updateProgramStartDate(potentialStartDate);
-        _invalidateCaches();
-        return true;
-      } finally {
-        await _setLoadingState(false);
-      }
-    }
-
-    return true;
-  }
-
-  Future<void> clearProgramStartDate() async {
-    await _setLoadingState(true);
-
-    try {
-      _programStartDate = null;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_programStartDateKey);
-
-      await _databaseService.deleteAllWorkoutSessions();
-      _sessions = [];
-      _invalidateCaches();
-    } catch (e) {
-      debugPrint('Error clearing program start date: $e');
-      _sessions = [];
-    } finally {
-      await _setLoadingState(false);
-    }
-  }
-
-  Future<void> _loadWorkouts() async {
-    try {
-      _workouts = await _databaseService.getAllWorkouts();
-      _workouts.sort((a, b) => a.dayNumber.compareTo(b.dayNumber));
-    } catch (e) {
-      debugPrint('Error loading workouts: $e');
-      _workouts = [];
-    }
-  }
-
-  Future<void> _loadWorkoutSessions() async {
-    try {
-      final newSessions = await _databaseService.getAllWorkoutSessions();
-      final newHash = _calculateSessionsHash(newSessions);
-
-      if (_lastSessionsHash != newHash) {
-        _sessions = newSessions;
-        _lastSessionsHash = newHash;
-        _invalidateCaches();
-      }
-    } catch (e) {
-      debugPrint('Error loading workout sessions: $e');
-      _sessions = [];
-    }
-  }
-
-  // Cached computation methods
-  int? getCurrentProgramDayInCycle() {
-    debugPrint('Program Start Date: $_programStartDate');
-    if (_shouldRecalculateCache()) {
-      _cachedCurrentDayInCycle = _calculateCurrentProgramDayInCycle();
-    }
-    return _cachedCurrentDayInCycle;
-  }
-
-  int? getCurrentProgramWeekInCycle() {
-    if (_shouldRecalculateCache()) {
-      final currentDay = getCurrentProgramDayInCycle();
-      _cachedCurrentWeekInCycle = currentDay == null
-          ? null
-          : ((currentDay - 1) / 7).floor() + 1;
-    }
-    return _cachedCurrentWeekInCycle;
-  }
-
-  int? getCurrentCycleNumber() {
-    if (_shouldRecalculateCache()) {
-      _cachedCurrentCycleNumber = _calculateCurrentCycleNumber();
-    }
-    return _cachedCurrentCycleNumber;
-  }
-
-  Map<String, double> getOverallProgress() {
-    if (_shouldRecalculateCache()) {
-      _cachedProgress = _calculateOverallProgress();
-    }
-    return Map<String, double>.from(_cachedProgress ?? {'currentCycleProgress': 0.0, 'completedCycles': 0.0});
-  }
-
-  Map<String, int> getCurrentCycleSessionStats() {
-    debugPrint("WorkoutProvider: getCurrentCycleSessionStats CALLED");
-    if (_shouldRecalculateCache() || _cachedCycleStats == null) {
-      _cachedCycleStats = _calculateCurrentCycleSessionStats();
-      debugPrint("WorkoutProvider: _cachedCycleStats: ${_cachedCycleStats != null}");
-    }
-    return Map<String, int>.from(_cachedCycleStats ??
-        {'completed': 0, 'skipped': 0, 'remaining': 0, 'totalInCycle': 0});
-  }
-
-  List<WorkoutSession> getThisWeekSessions() {
-    if (_shouldRecalculateCache()) {
-      _cachedThisWeekSessions = _calculateThisWeekSessions();
-    }
-    return List<WorkoutSession>.from(_cachedThisWeekSessions ?? []);
-  }
-
-  // Core business logic methods
-  Workout? getTodaysWorkout() {
-    if (_workouts.isEmpty) return null;
-    final currentDay = getCurrentProgramDayInCycle();
-    if (currentDay == null) return null;
-
-    try {
-      return _workouts.firstWhere((w) => w.dayNumber == currentDay);
-    } catch (e) {
-      debugPrint("WorkoutProvider: Could not find workout for day $currentDay");
-      return null;
-    }
-  }
-
-  List<Workout> getWeekWorkouts(int weekInCycle) {
-    if (weekInCycle < 1 || weekInCycle > programCycleLengthWeeks) {
-      return [];
-    }
-    return _workouts.where((workout) => workout.weekNumber == weekInCycle).toList();
-  }
-
-  Future<void> completeWorkout(
-      int workoutId, {
-        String? notes,
-        DateTime? dateOverride,
-      }) async {
-    await _updateWorkoutSession(
-      workoutId: workoutId,
-      completed: true,
-      notes: notes,
-      dateOverride: dateOverride,
-    );
-  }
-
-  Future<void> skipWorkout(
-      int workoutId, {
-        String? reason,
-        DateTime? dateOverride,
-      }) async {
-    await _updateWorkoutSession(
-      workoutId: workoutId,
-      completed: false,
-      notes: reason,
-      dateOverride: dateOverride,
-    );
-  }
-
-  Future<void> resetWorkout(
-      int workoutId, {
-        String? reason,
-        DateTime? dateOverride,
-      }) async {
-    await _updateWorkoutSession(
-      workoutId: workoutId,
-      completed: false,
-      notes: '',
-      dateOverride: dateOverride,
-    );
-  }
-
-  WorkoutSession? getSessionForDate(String dateString) {
-    try {
-      return _sessions.firstWhere((session) => session.date == dateString);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  Workout? getWorkoutForDate(DateTime date) {
-    if (_programStartDate == null || _workouts.isEmpty) return null;
-
-    final dateNormalized = _normalizeDatetime(date);
-    final startDateNormalized = _normalizeDatetime(_programStartDate!);
-
-    if (dateNormalized.isBefore(startDateNormalized)) return null;
-
-    final daysSinceProgramStart = dateNormalized.difference(startDateNormalized).inDays;
-    final dayInCycle = (daysSinceProgramStart % programCycleLengthDays) + 1;
-
-    try {
-      return _workouts.firstWhere((w) => w.dayNumber == dayInCycle);
-    } catch (e) {
-      debugPrint("WorkoutProvider: Could not find workout for day $dayInCycle");
-      return null;
-    }
-  }
-
-  Future<void> bulkUpsertWorkoutSessions(List<WorkoutSession> sessionsToProcess) async {
-    if (sessionsToProcess.isEmpty) return;
-
-    await _setLoadingState(true);
-
-    try {
-      // Process in batches for better performance
-      const batchSize = 20;
-      for (int i = 0; i < sessionsToProcess.length; i += batchSize) {
-        final batch = sessionsToProcess.skip(i).take(batchSize);
-        await _processSessions(batch.toList());
-      }
-
-      await _loadWorkoutSessions();
-      _invalidateCaches();
-    } catch (e) {
-      debugPrint('Error in bulkUpsertWorkoutSessions: $e');
-      rethrow;
-    } finally {
-      await _setLoadingState(false);
-    }
-  }
-
-  // Private helper methods
-  Future<void> _setLoadingState(bool loading) async {
-    if (_isLoading != loading) {
-      _isLoading = loading;
-      notifyListeners();
-    }
-  }
-
   Future<void> _updateWorkoutSession({
     required int workoutId,
     required bool completed,
@@ -437,18 +497,22 @@ class WorkoutProvider extends ChangeNotifier {
   }) async {
     try {
       final dateString = _dateToString(dateOverride ?? DateTime.now());
-      final existingSession = await _databaseService.getWorkoutSessionByDate(dateString);
-
-      final session = existingSession?.copyWith(
-        workoutId: workoutId,
-        completed: completed,
-        notes: notes,
-      ) ?? WorkoutSession(
-        workoutId: workoutId,
-        date: dateString,
-        completed: completed,
-        notes: notes,
+      final existingSession = await _databaseService.getWorkoutSessionByDate(
+        dateString,
       );
+
+      final session =
+          existingSession?.copyWith(
+            workoutId: workoutId,
+            completed: completed,
+            notes: notes,
+          ) ??
+          WorkoutSession(
+            workoutId: workoutId,
+            date: dateString,
+            completed: completed,
+            notes: notes,
+          );
 
       if (existingSession != null) {
         await _databaseService.updateWorkoutSession(session);
@@ -456,17 +520,19 @@ class WorkoutProvider extends ChangeNotifier {
         await _databaseService.insertWorkoutSession(session);
       }
 
-      await _loadWorkoutSessions();
+      await _loadWorkoutSessions(); // This will invalidate caches automatically
       notifyListeners();
     } catch (e) {
-      debugPrint('Error updating workout session: $e');
+      //debugPrint('Error updating workout session: $e');
       rethrow;
     }
   }
 
   Future<void> _processSessions(List<WorkoutSession> sessions) async {
     for (final session in sessions) {
-      final existingSession = await _databaseService.getWorkoutSessionByDate(session.date);
+      final existingSession = await _databaseService.getWorkoutSessionByDate(
+        session.date,
+      );
 
       if (existingSession != null) {
         final updatedSession = session.copyWith(id: existingSession.id);
@@ -477,35 +543,72 @@ class WorkoutProvider extends ChangeNotifier {
     }
   }
 
-  // Cache management
-  bool _shouldRecalculateCache() {
-    final now = DateTime.now();
-    debugPrint("WorkoutProvider: _shouldRecalculateCache CHECKING:");
-    debugPrint("WorkoutProvider: _lastCacheUpdate: $_lastCacheUpdate");
-    debugPrint("WorkoutProvider: _cachedProgress: ${_cachedProgress != null}");
-    debugPrint("WorkoutProvider: _cachedCycleStats: ${_cachedCycleStats != null}"); // Add this check for specific use case
-
-    return _lastCacheUpdate == null ||
-        now.difference(_lastCacheUpdate!).inMinutes > 5 ||
-        _cachedProgress == null;
+  void _setLoadingState(bool loading) {
+    if (_isLoading != loading) {
+      _isLoading = loading;
+      notifyListeners();
+    }
   }
 
-  void _invalidateCaches() {
+  // Cache management - FIXED LOGIC
+
+  /// Checks if a cached value should be used instead of recalculating.
+  bool _shouldUseCachedValue<T>(T? cachedValue) {
+    if (cachedValue == null) return false;
+    if (_cacheInvalidated) return false;
+
+    final now = DateTime.now();
+    if (_lastCacheUpdate == null) return false;
+
+    // Cache is valid for _cacheValidityMinutes
+    return now.difference(_lastCacheUpdate!).inMinutes < _cacheValidityMinutes;
+  }
+
+  /// Updates the cache timestamp and resets invalidation flag.
+  void _updateCacheTimestamp() {
+    _lastCacheUpdate = DateTime.now();
+    _cacheInvalidated = false;
+  }
+
+  /// Refreshes all caches by recalculating them immediately.
+  void _refreshCaches() {
+    //debugPrint("WorkoutProvider: Refreshing all caches");
+    _cachedCurrentDayInCycle = _calculateCurrentProgramDayInCycle();
+    _cachedCurrentWeekInCycle = _cachedCurrentDayInCycle == null
+        ? null
+        : ((_cachedCurrentDayInCycle! - 1) / 7).floor() + 1;
+    _cachedCurrentCycleNumber = _calculateCurrentCycleNumber();
+    _cachedProgress = _calculateOverallProgress();
+    _cachedCycleStats = _calculateCurrentCycleSessionStats();
+    _cachedThisWeekSessions = _calculateThisWeekSessions();
+    _updateCacheTimestamp();
+    //debugPrint("WorkoutProvider: Cache refresh complete");
+  }
+
+  /// Invalidates only the computed caches, not the basic data caches.
+  void _invalidateComputedCaches() {
+    //debugPrint("WorkoutProvider: Invalidating computed caches");
+    _cachedProgress = null;
+    _cachedCycleStats = null;
+    _cachedThisWeekSessions = null;
+    _cacheInvalidated = true;
+  }
+
+  /// Clears all caches completely.
+  void _clearCaches() {
     _cachedProgress = null;
     _cachedCycleStats = null;
     _cachedThisWeekSessions = null;
     _cachedCurrentDayInCycle = null;
     _cachedCurrentWeekInCycle = null;
     _cachedCurrentCycleNumber = null;
-    _lastCacheUpdate = DateTime.now();
-  }
-
-  void _clearCaches() {
-    _invalidateCaches();
+    _lastCacheUpdate = null;
     _lastSessionsHash = null;
+    _cacheInvalidated = false;
   }
 
-  // Calculation methods
+  // Calculation methods (unchanged but cleaned up)
+
   int? _calculateCurrentProgramDayInCycle() {
     if (_programStartDate == null) return null;
 
@@ -531,8 +634,13 @@ class WorkoutProvider extends ChangeNotifier {
   }
 
   Map<String, double> _calculateOverallProgress() {
+    const defaultProgress = {
+      'currentCycleProgress': 0.0,
+      'completedCycles': 0.0,
+    };
+
     if (_programStartDate == null || _workouts.isEmpty) {
-      return {'currentCycleProgress': 0.0, 'completedCycles': 0.0};
+      return defaultProgress;
     }
 
     final totalProgressCountableWorkoutDaysInOneCycle = _workouts
@@ -540,7 +648,7 @@ class WorkoutProvider extends ChangeNotifier {
         .length;
 
     if (totalProgressCountableWorkoutDaysInOneCycle == 0) {
-      return {'currentCycleProgress': 0.0, 'completedCycles': 0.0};
+      return defaultProgress;
     }
 
     final today = _getTodayNormalized();
@@ -548,10 +656,11 @@ class WorkoutProvider extends ChangeNotifier {
     final daysSinceProgramStart = today.difference(startDateNormalized).inDays;
 
     if (daysSinceProgramStart < 0) {
-      return {'currentCycleProgress': 0.0, 'completedCycles': 0.0};
+      return defaultProgress;
     }
 
-    final completedCycles = (daysSinceProgramStart / programCycleLengthDays).floor();
+    final completedCycles = (daysSinceProgramStart / programCycleLengthDays)
+        .floor();
     final currentCycleStartDate = startDateNormalized.add(
       Duration(days: completedCycles * programCycleLengthDays),
     );
@@ -569,26 +678,42 @@ class WorkoutProvider extends ChangeNotifier {
       if (session?.completed == true) {
         final workout = _getWorkoutById(session!.workoutId);
         if (workout != null &&
-            (workout.workoutType == 'workout' || workout.workoutType == 'fit_test')) {
+            (workout.workoutType == 'workout' ||
+                workout.workoutType == 'fit_test')) {
           completedInCurrentCycle++;
         }
       }
     }
 
     final currentCycleProgress =
-    (completedInCurrentCycle / totalProgressCountableWorkoutDaysInOneCycle * 100)
-        .clamp(0.0, 100.0);
+        (completedInCurrentCycle /
+                totalProgressCountableWorkoutDaysInOneCycle *
+                100)
+            .clamp(0.0, 100.0);
 
     return {
-      'currentCycleProgress': currentCycleProgress.isNaN ? 0.0 : currentCycleProgress,
+      'currentCycleProgress': currentCycleProgress.isNaN
+          ? 0.0
+          : currentCycleProgress,
       'completedCycles': completedCycles.toDouble(),
     };
   }
 
   Map<String, int> _calculateCurrentCycleSessionStats() {
-    debugPrint('Program Start Date: $_programStartDate');
+    const defaultStats = {
+      'completed': 0,
+      'skipped': 0,
+      'remaining': 0,
+      'totalInCycle': 0,
+    };
+
+    /*
+    debugPrint(
+      '_calculateCurrentCycleSessionStats: Program Start Date: $_programStartDate',
+    );
+    */
     if (_programStartDate == null || _workouts.isEmpty) {
-      return {'completed': 0, 'skipped': 0, 'remaining': 0, 'totalInCycle': 0};
+      return defaultStats;
     }
 
     final today = _getTodayNormalized();
@@ -608,7 +733,8 @@ class WorkoutProvider extends ChangeNotifier {
     }
 
     final daysSinceProgramStart = today.difference(startDateNormalized).inDays;
-    final currentCycleNumber = (daysSinceProgramStart / programCycleLengthDays).floor();
+    final currentCycleNumber = (daysSinceProgramStart / programCycleLengthDays)
+        .floor();
     final currentCycleStartDate = startDateNormalized.add(
       Duration(days: currentCycleNumber * programCycleLengthDays),
     );
@@ -616,13 +742,22 @@ class WorkoutProvider extends ChangeNotifier {
     int completed = 0;
     int skipped = 0;
     final sessionMap = {for (var session in _sessions) session.date: session};
+    /*
+    debugPrint(
+      '_calculateCurrentCycleSessionStats: Checking sessions from ${_dateToString(currentCycleStartDate)} for $programCycleLengthDays days',
+    );
+    debugPrint(
+      '_calculateCurrentCycleSessionStats: Session map has ${sessionMap.length} entries',
+    );
+    */
 
     for (int dayOffset = 0; dayOffset < programCycleLengthDays; dayOffset++) {
       final dateInCycle = currentCycleStartDate.add(Duration(days: dayOffset));
       if (dateInCycle.isAfter(today)) break;
 
       final workout = _getWorkoutForDayOffsetSync(dayOffset);
-      if (workout?.workoutType != 'workout' && workout?.workoutType != 'fit_test') {
+      if (workout?.workoutType != 'workout' &&
+          workout?.workoutType != 'fit_test') {
         continue;
       }
 
@@ -631,32 +766,52 @@ class WorkoutProvider extends ChangeNotifier {
 
       if (session?.completed == true) {
         completed++;
+        /*
+        debugPrint(
+          '_calculateCurrentCycleSessionStats: Found completed session for $dateString',
+        );
+        */
       } else if (session != null || dateInCycle.isBefore(today)) {
         skipped++;
+        /*
+        debugPrint(
+          '_calculateCurrentCycleSessionStats: Found skipped/missed session for $dateString',
+        );
+        */
       }
     }
 
-    return {
+    final result = {
       'completed': completed,
       'skipped': skipped,
-      'remaining': (totalCountableDays - completed).clamp(0, totalCountableDays),
+      'remaining': (totalCountableDays - completed).clamp(
+        0,
+        totalCountableDays,
+      ),
       'totalInCycle': totalCountableDays,
     };
+
+    //debugPrint('_calculateCurrentCycleSessionStats: Final result: $result');
+    return result;
   }
 
   List<WorkoutSession> _calculateThisWeekSessions() {
     final currentWeek = getCurrentProgramWeekInCycle();
     final currentCycle = getCurrentCycleNumber();
 
-    if (_programStartDate == null || currentWeek == null || currentCycle == null) {
+    if (_programStartDate == null ||
+        currentWeek == null ||
+        currentCycle == null) {
       return [];
     }
 
     final daysFromCycleStart = (currentWeek - 1) * 7;
-    final cycleStartDate = _normalizeDatetime(_programStartDate!).add(
-      Duration(days: (currentCycle - 1) * programCycleLengthDays),
+    final cycleStartDate = _normalizeDatetime(
+      _programStartDate!,
+    ).add(Duration(days: (currentCycle - 1) * programCycleLengthDays));
+    final weekStartDate = cycleStartDate.add(
+      Duration(days: daysFromCycleStart),
     );
-    final weekStartDate = cycleStartDate.add(Duration(days: daysFromCycleStart));
 
     final sessionMap = {for (var session in _sessions) session.date: session};
     final weekSessions = <WorkoutSession>[];
@@ -672,7 +827,8 @@ class WorkoutProvider extends ChangeNotifier {
     return weekSessions;
   }
 
-  // Utility methods
+  // Utility methods (unchanged)
+
   DateTime _getTodayNormalized() {
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day);
@@ -716,9 +872,9 @@ class WorkoutProvider extends ChangeNotifier {
   }
 
   Future<Workout?> _getWorkoutForDayOffset(
-      int dayOffset,
-      DateTime startDate,
-      ) async {
+    int dayOffset,
+    DateTime startDate,
+  ) async {
     final dayInCycle = (dayOffset % programCycleLengthDays) + 1;
 
     try {

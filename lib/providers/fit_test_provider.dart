@@ -246,7 +246,7 @@ class FitTestProvider extends ChangeNotifier {
       await operation();
     } catch (e) {
       _lastError = e.toString();
-      debugPrint('FitTestProvider error: $e');
+      //debugPrint('FitTestProvider error: $e');
 
       // Ensure we have a valid state even on error
       if (_fitTests.isEmpty) {

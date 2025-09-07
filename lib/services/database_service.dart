@@ -32,7 +32,7 @@ class DatabaseService {
   // This can be the same as calling the getter if it handles null _database
   // or you can make it more explicit.
   Future<void> reinitializeDatabase() async {
-    debugPrint("Re-initializing database explicitly...");
+    //debugPrint("Re-initializing database explicitly...");
     _database = await _initDatabase(); // Re-run initialization
   }
 
@@ -622,9 +622,9 @@ class DatabaseService {
     final db = await database;
     try {
       await db.delete('workout_sessions');
-      debugPrint('All workout sessions deleted successfully.');
+      //debugPrint('All workout sessions deleted successfully.');
     } catch (e) {
-      debugPrint('Error deleting all workout sessions: $e');
+      //debugPrint('Error deleting all workout sessions: $e');
       // Optionally rethrow or handle more gracefully
     }
   }
@@ -678,9 +678,9 @@ class DatabaseService {
     if (db != null && db.isOpen) {
       await db.close();
       _database = null; // Set to null so the getter re-initializes next time
-      debugPrint("Database connection closed.");
+      //debugPrint("Database connection closed.");
     } else {
-      debugPrint("Database already closed or not initialized.");
+      //debugPrint("Database already closed or not initialized.");
     }
   }
 }

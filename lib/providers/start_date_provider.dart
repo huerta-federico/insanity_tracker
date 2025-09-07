@@ -21,10 +21,13 @@ class StartDateProvider extends ChangeNotifier {
   ///
   /// Returns a Future that completes when the operation is finished.
   Future<void> pickProgramStartDate(
-      BuildContext context,
-      WorkoutProvider workoutProvider,
-      ) async {
-    final DateTime? picked = await _showStartDatePicker(context, workoutProvider);
+    BuildContext context,
+    WorkoutProvider workoutProvider,
+  ) async {
+    final DateTime? picked = await _showStartDatePicker(
+      context,
+      workoutProvider,
+    );
 
     if (!context.mounted || picked == null) return;
 
@@ -40,9 +43,9 @@ class StartDateProvider extends ChangeNotifier {
 
   /// Shows the date picker dialog with appropriate constraints.
   Future<DateTime?> _showStartDatePicker(
-      BuildContext context,
-      WorkoutProvider workoutProvider,
-      ) async {
+    BuildContext context,
+    WorkoutProvider workoutProvider,
+  ) async {
     final DateTime? currentStartDate = workoutProvider.programStartDate;
     final DateTime now = DateTime.now();
 
@@ -86,14 +89,15 @@ class StartDateProvider extends ChangeNotifier {
   }
 
   /// Shows a confirmation dialog warning about data loss.
-  Future<bool> _showConfirmationDialog(BuildContext context, DateTime picked) async {
+  Future<bool> _showConfirmationDialog(
+    BuildContext context,
+    DateTime picked,
+  ) async {
     final bool? result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext dialogContext) => _buildConfirmationDialog(
-        dialogContext,
-        picked,
-      ),
+      builder: (BuildContext dialogContext) =>
+          _buildConfirmationDialog(dialogContext, picked),
     );
 
     return result ?? false;
@@ -111,7 +115,7 @@ class StartDateProvider extends ChangeNotifier {
           const SizedBox(height: 12),
           const Text(
             'Warning: This will permanently delete all previously logged '
-                'workout sessions and reset your current progress.',
+            'workout sessions and reset your current progress.',
             style: TextStyle(fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 8),
@@ -134,10 +138,10 @@ class StartDateProvider extends ChangeNotifier {
 
   /// Updates the start date and handles success/error feedback.
   Future<void> _updateStartDate(
-      BuildContext context,
-      WorkoutProvider workoutProvider,
-      DateTime picked,
-      ) async {
+    BuildContext context,
+    WorkoutProvider workoutProvider,
+    DateTime picked,
+  ) async {
     try {
       await workoutProvider.setProgramStartDate(
         picked,
@@ -160,7 +164,7 @@ class StartDateProvider extends ChangeNotifier {
       SnackBar(
         content: Text(
           'Program start date set to ${UtilsProvider.formatDateForDisplay(picked)}. '
-              'Past workouts reset and auto-completed.',
+          'Past workouts reset and auto-completed.',
         ),
         backgroundColor: Colors.green,
         duration: const Duration(seconds: 4),

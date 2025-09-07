@@ -8,7 +8,6 @@ import '../models/workout.dart';
 
 final StartDateProvider _startDateProvider = StartDateProvider();
 
-
 class ScheduleScreen extends StatelessWidget {
   const ScheduleScreen({super.key});
 

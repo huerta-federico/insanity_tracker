@@ -38,7 +38,7 @@ class SettingsScreen extends StatelessWidget {
                 return Text(
                   wp.programStartDate == null
                       ? 'Not set'
-                      : 'Current: ${UtilsProvider.formatDateForDisplay(wp.programStartDate)}',
+                      : 'Current: ${UtilsProvider.formatDate(UtilsProvider.formatDateForDisplay(wp.programStartDate))}',
                 );
               },
             ),
@@ -68,8 +68,7 @@ class SettingsScreen extends StatelessWidget {
                 },
               );
 
-              final bool success = await backupService
-                  .exportDatabaseViaShareSheet();
+              final bool success = await backupService.exportDatabase();
 
               if (!context.mounted) return;
               Navigator.of(

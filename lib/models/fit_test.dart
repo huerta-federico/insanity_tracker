@@ -23,7 +23,8 @@ class FitTest {
     required this.powerJumps,
     required this.globeJumps,
     required this.suicideJumps,
-    required this.pushupJacks,    required this.lowPlankOblique,
+    required this.pushupJacks,
+    required this.lowPlankOblique,
     this.notes,
   });
 
@@ -50,7 +51,8 @@ class FitTest {
     final map = <String, dynamic>{
       // 'id' is not included if null (for new inserts, DB handles it)
       'test_date': testDate,
-      'test_number': testNumber, // This is the provisional number for new inserts
+      'test_number':
+          testNumber, // This is the provisional number for new inserts
       'switch_kicks': switchKicks,
       'power_jacks': powerJacks,
       'power_knees': powerKnees,
@@ -68,8 +70,14 @@ class FitTest {
   }
 
   int get totalReps {
-    return switchKicks + powerJacks + powerKnees + powerJumps +
-        globeJumps + suicideJumps + pushupJacks + lowPlankOblique;
+    return switchKicks +
+        powerJacks +
+        powerKnees +
+        powerJumps +
+        globeJumps +
+        suicideJumps +
+        pushupJacks +
+        lowPlankOblique;
   }
 
   // Optional: copyWith for easier manipulation if needed,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:insanity_tracker/screens/settings_screen.dart';
 import 'package:provider/provider.dart';
 import '../models/workout_session.dart';
+import '../providers/utils_provider.dart';
 import '../providers/workout_provider.dart';
 import '../models/workout.dart';
 
@@ -181,7 +182,9 @@ class _WelcomeContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final now = DateTime.now();
     final todayName = _dayNames[now.weekday - 1];
-    final dateString = '${now.day}/${now.month}/${now.year}';
+    final dateString = UtilsProvider.formatDate(
+      UtilsProvider.formatDateForDisplay(now),
+    );
 
     return Row(
       children: [
@@ -582,6 +585,9 @@ class _QuickStatsSection extends StatelessWidget {
       selector: (_, provider) {
         final thisWeekSessions = provider.getThisWeekSessions();
         final progressData = provider.getOverallProgress();
+        //debugPrint("This Week Sessions: $thisWeekSessions");
+        //debugPrint("Progress Data $progressData");
+
         return _QuickStatsData(
           completedThisWeek: thisWeekSessions.where((s) => s.completed).length,
           scheduledThisWeek: thisWeekSessions.length,
