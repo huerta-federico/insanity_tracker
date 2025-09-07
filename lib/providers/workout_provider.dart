@@ -20,6 +20,7 @@ class WorkoutProvider extends ChangeNotifier {
 
   // Getters
   List<Workout> get workouts => _workouts;
+
   List<WorkoutSession> get sessions => _sessions;
   bool get isLoading => _isLoading;
   DateTime? get programStartDate => _programStartDate;
@@ -56,7 +57,20 @@ class WorkoutProvider extends ChangeNotifier {
   }) async {
     _isLoading = true;
     notifyListeners();
-
+    try {
+      debugPrint(
+        'Clearing existing workout sessions before setting new start date...',
+      );
+      await _databaseService.deleteAllWorkoutSessions();
+      // Ensure the in-memory list is also cleared immediately
+      _sessions = [];
+      debugPrint('Existing workout sessions cleared.');
+    } catch (e) {
+      debugPrint('Error clearing existing workout sessions: $e');
+      // Decide if you want to proceed if deletion fails. For robustness,
+      // it might be better to stop or ensure _sessions is empty.
+      _sessions = []; // Ensure it's empty even on error
+    }
     _programStartDate = startDate;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_programStartDateKey, startDate.toIso8601String());
@@ -85,7 +99,7 @@ class WorkoutProvider extends ChangeNotifier {
 
   Future<void> _autoCompletePastWorkouts(DateTime programStartDate) async {
     if (_workouts.isEmpty) {
-      await _loadWorkouts(); // Ensure workouts are loaded
+      await _loadWorkouts();
       if (_workouts.isEmpty) {
         debugPrint("Cannot auto-complete: Workouts list is empty.");
         return;
@@ -100,22 +114,20 @@ class WorkoutProvider extends ChangeNotifier {
     );
     final todayNormalized = DateTime(today.year, today.month, today.day);
 
-    // Iterate from the program start date up to today
     for (int dayOffset = 0; ; dayOffset++) {
       final currentDateToLog = startDateNormalized.add(
         Duration(days: dayOffset),
       );
-      if (currentDateToLog.isAfter(todayNormalized)) {
-        break; // Stop if we've passed today
+      // Stop if we've reached or passed today (auto-complete only for past days)
+      if (!currentDateToLog.isBefore(todayNormalized)) {
+        break;
       }
 
-      // Determine the day number in the 63-day cycle for this currentDateToLog
       final daysSinceProgramStartForThisDate = currentDateToLog
           .difference(startDateNormalized)
           .inDays;
       final dayInCycle =
-          (daysSinceProgramStartForThisDate % programCycleLengthDays) +
-          1; // 1-63
+          (daysSinceProgramStartForThisDate % programCycleLengthDays) + 1;
 
       Workout? scheduledWorkout;
       try {
@@ -126,11 +138,15 @@ class WorkoutProvider extends ChangeNotifier {
         debugPrint(
           "WorkoutProvider: Could not find workout for day $dayInCycle in the schedule for auto-completion.",
         );
-        continue; // Skip this day if no workout is defined
+        continue;
       }
 
-      // Skip auto-completing 'rest' days as they don't typically have a "completed" session
-      // Or, if you want to log them as 'completed' (which is unusual for rest), remove this check.
+      /// Attempts to determine the program start date from the earliest session
+      /// in the database and sets it. This is useful after an import.
+      /// Returns true if a start date was found and set, false otherwise.
+
+      // --- MODIFIED ---
+      // Skip auto-completing 'rest' days. 'workout' and 'fit_test' should be auto-completed.
       if (scheduledWorkout.workoutType == 'rest') {
         debugPrint(
           "Skipping auto-completion for rest day: ${scheduledWorkout.name} on ${currentDateToLog.toIso8601String().split('T')[0]}",
@@ -139,8 +155,6 @@ class WorkoutProvider extends ChangeNotifier {
       }
 
       final dateString = currentDateToLog.toIso8601String().split('T')[0];
-
-      // Check if a session already exists for this date to avoid duplicates or overwriting
       WorkoutSession? existingSession = await _databaseService
           .getWorkoutSessionByDate(dateString);
 
@@ -148,26 +162,71 @@ class WorkoutProvider extends ChangeNotifier {
         WorkoutSession newSession = WorkoutSession(
           workoutId: scheduledWorkout.id,
           date: dateString,
-          completed: true, // Mark as completed
-          notes: 'Auto-completed', // Optional note
+          completed: true,
+          notes: 'Auto-completed',
         );
         await _databaseService.insertWorkoutSession(newSession);
-        debugPrint('Auto-completed: ${scheduledWorkout.name} on $dateString');
-      } else {
-        // Optional: If a session exists, you might want to update it to completed if it wasn't.
-        // For simplicity now, we only insert if it doesn't exist.
-        // if (!existingSession.completed) {
-        //   WorkoutSession updatedSession = existingSession.copyWith(completed: true, notes: existingSession.notes ?? 'Auto-completed (updated)');
-        //   await _databaseService.updateWorkoutSession(updatedSession);
-        //   debugPrint('Updated existing session to completed: ${scheduledWorkout.name} on $dateString');
-        // } else {
         debugPrint(
-          'Session already exists (or already completed) for ${scheduledWorkout.name} on $dateString. Skipping auto-completion for this day.',
+          'Auto-completed (${scheduledWorkout.workoutType}): ${scheduledWorkout.name} on $dateString',
         );
-        // }
+      } else {
+        debugPrint(
+          'Session already exists for ${scheduledWorkout.name} on $dateString. Skipping auto-completion for this day.',
+        );
       }
     }
   }
+
+  // In WorkoutProvider
+
+  Future<bool> reconcileStartDateFromImportedData() async {
+    if (_sessions.isEmpty) {
+      debugPrint("WorkoutProvider: No sessions found to infer start date after import.");
+      return false;
+    }
+
+    _sessions.sort((a, b) => DateTime.parse(a.date).compareTo(DateTime.parse(b.date)));
+    final String earliestSessionDateString = _sessions.first.date;
+    DateTime earliestSessionDate = DateTime.parse(earliestSessionDateString);
+
+    DateTime potentialStartDate = earliestSessionDate;
+    while (potentialStartDate.weekday != DateTime.monday) {
+      potentialStartDate = potentialStartDate.subtract(const Duration(days: 1));
+    }
+
+    // Check if the determined start date is actually different from the current one
+    if (_programStartDate == null ||
+        _programStartDate!.year != potentialStartDate.year ||
+        _programStartDate!.month != potentialStartDate.month ||
+        _programStartDate!.day != potentialStartDate.day) {
+
+      debugPrint("WorkoutProvider: Reconciling start date. Found earliest session on $earliestSessionDateString. Updating start date to $potentialStartDate");
+
+      _isLoading = true; // Signal loading state
+      // Manually update the start date and save to SharedPreferences
+      _programStartDate = potentialStartDate;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_programStartDateKey, _programStartDate!.toIso8601String());
+
+      // _sessions are already loaded with imported data.
+      // _workouts should also be loaded from the initial initialize() call.
+      // We just need to ensure everything is consistent and notify.
+      // No need to clear sessions or auto-populate here.
+
+      // If _loadWorkouts() is quick and safe to call again, do it. Otherwise, assume it's done.
+      // await _loadWorkouts();
+
+      _isLoading = false;
+      notifyListeners(); // This is key to update the UI with the new start date AND existing sessions
+      return true;
+    } else {
+      debugPrint("WorkoutProvider: Start date already matches inferred date from imported data. No changes made.");
+      // Even if the date is the same, if initialize() was called before, a notifyListeners() might be good.
+      // However, the initial initialize() would have already notified.
+      return true; // Date was already correct
+    }
+  }
+
 
   // --- Reset Program Start Date (Optional - for testing or if user makes a mistake) ---
   Future<void> clearProgramStartDate() async {
@@ -178,7 +237,19 @@ class WorkoutProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_programStartDateKey);
 
-    debugPrint('Program Start Date CLEARED');
+    try {
+      // Delete all existing workout sessions from the database
+      await _databaseService.deleteAllWorkoutSessions();
+      // Reload sessions (which will now be empty)
+      await _loadWorkoutSessions(); // This will update _sessions to an empty list
+      debugPrint(
+        'Program Start Date CLEARED and all workout sessions deleted.',
+      );
+    } catch (e) {
+      debugPrint('Error clearing program start date and deleting sessions: $e');
+      // Handle error, maybe set _sessions to empty anyway
+      _sessions = [];
+    }
 
     // Potentially clear dependent data or just notify
     _isLoading = false;
@@ -353,6 +424,41 @@ class WorkoutProvider extends ChangeNotifier {
     }
   }
 
+  // Reset a workout
+  Future<void> resetWorkout(
+    int workoutId, {
+    String? reason,
+    DateTime? dateOverride,
+  }) async {
+    try {
+      final dateToLog = dateOverride ?? DateTime.now();
+      String dateString = dateToLog.toIso8601String().split('T')[0];
+      WorkoutSession? existingSession = await _databaseService
+          .getWorkoutSessionByDate(dateString);
+
+      if (existingSession != null) {
+        WorkoutSession updatedSession = existingSession.copyWith(
+          workoutId: workoutId, // Ensure workoutId is also updated
+          completed: false,
+          notes: '',
+        );
+        await _databaseService.updateWorkoutSession(updatedSession);
+      } else {
+        WorkoutSession newSession = WorkoutSession(
+          workoutId: workoutId,
+          date: dateString,
+          completed: false,
+          notes: '',
+        );
+        await _databaseService.insertWorkoutSession(newSession);
+      }
+      await _loadWorkoutSessions();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error resetting workout: $e');
+    }
+  }
+
   WorkoutSession? getSessionForDate(String dateString) {
     // Date string YYYY-MM-DD
     try {
@@ -368,10 +474,11 @@ class WorkoutProvider extends ChangeNotifier {
       return {'currentCycleProgress': 0.0, 'completedCycles': 0.0};
     }
 
-    final int totalWorkoutDaysInOneCycle = _workouts
-        .where((w) => w.workoutType == 'workout')
+    final int totalProgressCountableWorkoutDaysInOneCycle = _workouts
+        .where((w) => w.workoutType == 'workout' || w.workoutType == 'fit_test')
         .length;
-    if (totalWorkoutDaysInOneCycle == 0) {
+
+    if (totalProgressCountableWorkoutDaysInOneCycle == 0) {
       return {'currentCycleProgress': 0.0, 'completedCycles': 0.0};
     }
 
@@ -411,7 +518,8 @@ class WorkoutProvider extends ChangeNotifier {
           final workoutForSessionDay = _workouts.firstWhere(
             (w) => w.id == session.workoutId,
           );
-          if (workoutForSessionDay.workoutType == 'workout') {
+          if (workoutForSessionDay.workoutType == 'workout' ||
+              workoutForSessionDay.workoutType == 'fit_test') {
             completedInCurrentCycle++;
           }
         } catch (e) {
@@ -421,7 +529,9 @@ class WorkoutProvider extends ChangeNotifier {
     }
 
     double currentCycleProgress =
-        (completedInCurrentCycle / totalWorkoutDaysInOneCycle) * 100;
+        (completedInCurrentCycle /
+            totalProgressCountableWorkoutDaysInOneCycle) *
+        100;
     currentCycleProgress = currentCycleProgress.isNaN
         ? 0.0
         : currentCycleProgress.clamp(0.0, 100.0);
@@ -497,121 +607,128 @@ class WorkoutProvider extends ChangeNotifier {
   }
 
   Map<String, int> getCurrentCycleSessionStats() {
-    if (_programStartDate == null || _workouts.isEmpty) {
+    if (_programStartDate == null || workouts.isEmpty) {
       return {'completed': 0, 'skipped': 0, 'remaining': 0, 'totalInCycle': 0};
     }
 
-    final int totalWorkoutDaysInOneCycle = _workouts
-        .where(
-          (w) => w.workoutType == 'workout',
-        ) // Count only actual 'workout' days for this stat
-        .length;
+    final DateTime today = DateTime.now();
+    final DateTime todayNormalized = DateTime(
+      today.year,
+      today.month,
+      today.day,
+    );
+    final DateTime startDateNormalized = DateTime(
+      _programStartDate!.year,
+      _programStartDate!.month,
+      _programStartDate!.day,
+    );
 
-    if (totalWorkoutDaysInOneCycle == 0) {
+    if (todayNormalized.isBefore(startDateNormalized)) {
+      // Program hasn't started yet
+      final int totalCountableDays = workouts
+          .where(
+            (w) => w.workoutType == 'workout' || w.workoutType == 'fit_test',
+          )
+          .length;
       return {
         'completed': 0,
         'skipped': 0,
-        'remaining': totalWorkoutDaysInOneCycle,
-        'totalInCycle': totalWorkoutDaysInOneCycle,
+        'remaining': totalCountableDays,
+        'totalInCycle': totalCountableDays,
       };
     }
 
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final int daysSinceProgramStart = todayNormalized
+        .difference(startDateNormalized)
+        .inDays;
+    final int currentCycleNumber =
+        (daysSinceProgramStart / programCycleLengthDays).floor();
+    final DateTime currentCycleStartDate = startDateNormalized.add(
+      Duration(days: currentCycleNumber * programCycleLengthDays),
+    );
+
+    // --- MODIFIED ---
+    // Calculate total 'workout' and 'fit_test' days in the entire cycle definition
+    final int totalCountableDaysInCycleDefinition = workouts
+        .where((w) => w.workoutType == 'workout' || w.workoutType == 'fit_test')
+        .length;
+
+    int completedThisCycle = 0;
+    int skippedThisCycle =
+        0; // Assuming 'skipped' still primarily applies to these types
+
+    for (int dayOffset = 0; dayOffset < programCycleLengthDays; dayOffset++) {
+      final DateTime dateInCycle = currentCycleStartDate.add(
+        Duration(days: dayOffset),
+      );
+      if (dateInCycle.isAfter(todayNormalized)) {
+        break; // Stop if we've passed today
+      }
+
+      final String dateString = dateInCycle.toIso8601String().split('T')[0];
+      final WorkoutSession? session = getSessionForDate(dateString);
+      final Workout? scheduledWorkout = getWorkoutForDate(dateInCycle);
+
+      if (scheduledWorkout != null &&
+          (scheduledWorkout.workoutType == 'workout' ||
+              scheduledWorkout.workoutType == 'fit_test')) {
+        if (session != null) {
+          if (session.completed) {
+            completedThisCycle++;
+          } else {
+            // If a session exists but not completed, consider it skipped for these types
+            skippedThisCycle++;
+          }
+        } else {
+          // No session exists for a past 'workout' or 'fit_test' day, consider it skipped
+          skippedThisCycle++;
+        }
+      }
+    }
+
+    // 'remaining' is total countable days in cycle definition minus those completed or skipped UP TO TODAY
+    // More accurately: total countable in definition minus what's been accounted for (completed/skipped) from days passed.
+    // Or, total in definition minus completed, and ensure skipped doesn't make remaining negative.
+    int remainingInCycle =
+        totalCountableDaysInCycleDefinition - completedThisCycle;
+
+    return {
+      'completed': completedThisCycle,
+      'skipped': skippedThisCycle,
+      'remaining': remainingInCycle < 0
+          ? 0
+          : remainingInCycle, // Ensure not negative
+      'totalInCycle': totalCountableDaysInCycleDefinition,
+    };
+  }
+
+  Workout? getWorkoutForDate(DateTime date) {
+    if (_programStartDate == null || _workouts.isEmpty) return null;
+
+    final dateNormalized = DateTime(date.year, date.month, date.day);
     final startDateNormalized = DateTime(
       _programStartDate!.year,
       _programStartDate!.month,
       _programStartDate!.day,
     );
 
-    if (today.isBefore(startDateNormalized)) {
-      // Program hasn't started, or it's before the first day of the current view
-      return {
-        'completed': 0,
-        'skipped': 0,
-        'remaining': totalWorkoutDaysInOneCycle,
-        'totalInCycle': totalWorkoutDaysInOneCycle,
-      };
+    if (dateNormalized.isBefore(startDateNormalized)) {
+      // Date is before the program started
+      return null;
     }
 
-    final daysSinceProgramStart = today.difference(startDateNormalized).inDays;
-    final completedCycles = (daysSinceProgramStart / programCycleLengthDays)
-        .floor();
-    final currentCycleStartDate = startDateNormalized.add(
-      Duration(days: completedCycles * programCycleLengthDays),
-    );
+    final daysSinceProgramStart = dateNormalized
+        .difference(startDateNormalized)
+        .inDays;
+    final dayInCycle = (daysSinceProgramStart % programCycleLengthDays) + 1;
 
-    int completedInCurrentCycle = 0;
-    int skippedInCurrentCycle = 0;
-
-    for (int i = 0; i < programCycleLengthDays; i++) {
-      final dateInCycle = currentCycleStartDate.add(Duration(days: i));
-      final dateString = dateInCycle.toIso8601String().split('T')[0];
-
-      // Find the scheduled workout for this day in the cycle
-      // The dayNumber for workouts is 1-based.
-      final dayInCycleForWorkoutLookup = (i % programCycleLengthDays) + 1;
-      Workout? scheduledWorkout;
-      try {
-        scheduledWorkout = _workouts.firstWhere(
-          (w) => w.dayNumber == dayInCycleForWorkoutLookup,
-        );
-      } catch (e) {
-        // Should not happen if workouts list covers all days 1-63
-        continue;
-      }
-
-      // We only care about 'workout' types for this specific chart's completed/skipped/remaining.
-      // Fit tests and rest days are handled separately or implied.
-      if (scheduledWorkout.workoutType != 'workout') {
-        continue;
-      }
-
-      // Count as a day that has passed or is today within the actual workout days
-      if (dateInCycle.isBefore(today) || dateInCycle.isAtSameMomentAs(today)) {
-        final session = getSessionForDate(
-          dateString,
-        ); // getSessionForDate should be efficient
-
-        if (session != null) {
-          if (session.completed && session.workoutId == scheduledWorkout.id) {
-            // Ensure session matches the scheduled workout
-            completedInCurrentCycle++;
-          } else if (!session.completed &&
-              session.workoutId == scheduledWorkout.id) {
-            skippedInCurrentCycle++;
-          }
-          // If session.workoutId doesn't match scheduledWorkout.id, it implies user logged a different workout
-          // on this day. How to count that depends on exact requirements. For now, we assume direct match.
-        } else {
-          // No session logged for a past/today 'workout' day in the current cycle
-          // This could be implicitly "skipped" or "pending if today"
-          // For simplicity, if it's passed and no session, we can count it as effectively skipped for chart purposes
-          if (dateInCycle.isBefore(today)) {
-            skippedInCurrentCycle++; // Or however you want to define "skipped" for days with no log
-          }
-        }
-      }
+    try {
+      return _workouts.firstWhere((w) => w.dayNumber == dayInCycle);
+    } catch (e) {
+      debugPrint(
+        "WorkoutProvider: Could not find workout for day $dayInCycle (date: $date) in the schedule.",
+      );
+      return null;
     }
-
-    // Remaining is total 'workout' days in cycle minus those completed or skipped up to today.
-    // This definition of remaining means "remaining workout days in the cycle that are either upcoming or today and not yet done"
-    int remainingInCurrentCycle =
-        totalWorkoutDaysInOneCycle -
-        completedInCurrentCycle -
-        skippedInCurrentCycle;
-    // Ensure remaining is not negative, which could happen if skipped logic is complex
-    remainingInCurrentCycle = remainingInCurrentCycle < 0
-        ? 0
-        : remainingInCurrentCycle;
-
-    return {
-      'completed': completedInCurrentCycle,
-      'skipped': skippedInCurrentCycle,
-      'remaining':
-          remainingInCurrentCycle, // Total 'workout' days minus (completed + skipped for past/today)
-      'totalInCycle':
-          totalWorkoutDaysInOneCycle, // Total 'workout' type days in a cycle definition
-    };
   }
 }

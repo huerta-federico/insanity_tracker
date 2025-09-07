@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:insanity_tracker/providers/start_date_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../providers/fit_test_provider.dart';
 import '../providers/workout_provider.dart';
+import '../providers/utils_provider.dart';
+
+UtilsProvider utils = UtilsProvider();
+StartDateProvider startDateProvider = StartDateProvider();
 
 /// Progress screen showing workout completion statistics and fit test improvements
 class ProgressScreen extends StatelessWidget {
@@ -10,45 +15,82 @@ class ProgressScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Progress')),
-      body: Consumer2<WorkoutProvider, FitTestProvider>(
-        builder: (context, workoutProvider, fitTestProvider, child) {
-          if (workoutProvider.isLoading || fitTestProvider.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
+    return Consumer<WorkoutProvider>(
+      builder: (context, workoutProvider, child) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('Progress')),
+          body: Consumer2<WorkoutProvider, FitTestProvider>(
+            builder: (context, workoutProvider, fitTestProvider, child) {
+              if (workoutProvider.isLoading || fitTestProvider.isLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Overall stats card
-                _buildOverallStatsCard(workoutProvider),
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Overall stats card
+                    _buildOverallStatsCard(workoutProvider),
 
-                const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                // Fit test progress chart
-                _buildFitTestProgressChart(fitTestProvider),
+                    // Fit test progress chart
+                    _buildFitTestProgressChart(fitTestProvider),
 
-                const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                // Workout completion chart
-                _buildWorkoutCompletionChart(workoutProvider),
+                    // Workout completion chart
+                    _buildWorkoutCompletionChart(workoutProvider),
 
-                const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                // Improvement percentages
-                _buildImprovementCard(fitTestProvider),
+                    // Improvement percentages
+                    _buildImprovementCard(fitTestProvider),
 
-                const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                // Detailed statistics
-                _buildDetailedStatsCard(workoutProvider, fitTestProvider),
-              ],
+                    // Detailed statistics
+                    _buildDetailedStatsCard(workoutProvider, fitTestProvider),
+
+                    if (workoutProvider.programStartDate != null)
+                      _buildStartDateDisplay(context, workoutProvider),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildStartDateDisplay(
+    BuildContext context,
+    WorkoutProvider provider,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text('Program Started:', style: TextStyle(fontSize: 14)),
+          const SizedBox(width: 8),
+          Text(
+            utils.formatDateForDisplay(provider.programStartDate),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.red,
             ),
-          );
-        },
+          ),
+          IconButton(
+            icon: Icon(Icons.edit, size: 20, color: Colors.grey[600]),
+            tooltip: 'Change Start Date',
+            onPressed: () =>
+                startDateProvider.pickProgramStartDate(context, provider),
+          ),
+        ],
       ),
     );
   }
@@ -60,7 +102,7 @@ class ProgressScreen extends StatelessWidget {
         .length;
     // Get total workout days in one cycle for display, ensure it matches provider logic
     final totalWorkoutsInCycle = workoutProvider.workouts
-        .where((w) => w.workoutType == 'workout')
+        .where((w) => w.workoutType == 'workout' || w.workoutType == 'fit_test')
         .length;
 
     // Updated: Get the progress map
@@ -181,6 +223,14 @@ class ProgressScreen extends StatelessWidget {
         ),
       );
     }
+    // Determine a reasonable interval for X-axis labels
+    // This is a simple strategy, you might want to make it more sophisticated
+    // e.g., based on screen width or a maximum number of labels.
+    double labelInterval = 1.0;
+    const maxLabelsToShow = 5; // Adjust as needed for your UI
+    if (fitTests.length > maxLabelsToShow) {
+      labelInterval = (fitTests.length / maxLabelsToShow).ceilToDouble();
+    }
 
     return Card(
       child: Padding(
@@ -208,13 +258,28 @@ class ProgressScreen extends StatelessWidget {
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
+                        // Set an interval for when titles should appear
+                        interval: labelInterval,
                         getTitlesWidget: (value, meta) {
                           final index = value.toInt();
-                          if (index >= 0 && index < fitTests.length) {
-                            return Text('Test ${index + 1}');
+                          // Only show label if the current value is an actual data point index
+                          // and it aligns with our desired label interval.
+                          if (index >= 0 &&
+                              index < fitTests.length &&
+                              (index % labelInterval.toInt() == 0 ||
+                                  labelInterval == 1.0)) {
+                            // Using fitTest.testNumber for the label, which is 1-based
+                            // Assumes fitTests are sorted and testNumber is reliable from the provider
+                            return Padding(
+                              padding: const EdgeInsets.only(
+                                top: 8.0,
+                              ), // Adjust padding as needed
+                              child: Text('Test ${fitTests[index].testNumber}'),
+                            );
                           }
                           return const Text('');
                         },
+                        reservedSize: 30, // Adjust if labels get cut off
                       ),
                     ),
                     topTitles: const AxisTitles(
@@ -228,6 +293,7 @@ class ProgressScreen extends StatelessWidget {
                   lineBarsData: [
                     LineChartBarData(
                       spots: fitTests.asMap().entries.map((entry) {
+                        // entry.key is the 0-based index, which is what the chart uses for spot X values
                         return FlSpot(
                           entry.key.toDouble(),
                           entry.value.totalReps.toDouble(),
@@ -239,18 +305,27 @@ class ProgressScreen extends StatelessWidget {
                       dotData: const FlDotData(show: true),
                       belowBarData: BarAreaData(
                         show: true,
-                        color: Colors.red.withValues(alpha: 0.1),
+                        color: Colors.red.withValues(
+                          alpha: 0.1,
+                        ), // Corrected withOpacity
                       ),
                     ),
                   ],
+                  // Optional: Define minX and maxX if you want to ensure all points are visible
+                  // especially if labelInterval makes the last point not have a direct tick.
+                  minX: 0,
+                  maxX: (fitTests.length - 1).toDouble(),
                 ),
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Total Reps per Fit Test',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-              textAlign: TextAlign.center,
+            const Align(
+              // Center the subtitle
+              alignment: Alignment.center,
+              child: Text(
+                'Total Reps per Fit Test',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
             ),
           ],
         ),

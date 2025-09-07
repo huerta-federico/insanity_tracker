@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/fit_test_provider.dart';
+import '../providers/utils_provider.dart';
 import '../models/fit_test.dart';
 import 'dart:async';
 
+UtilsProvider utils = UtilsProvider();
 /// Fit Test screen for inputting and tracking Insanity fit test results
 class FitTestScreen extends StatefulWidget {
   const FitTestScreen({super.key});
@@ -96,14 +98,14 @@ class _FitTestScreenState extends State<FitTestScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Instructions card
-                  _buildInstructionsCard(),
+                  //_buildInstructionsCard(),
 
-                  const SizedBox(height: 16),
+                  //const SizedBox(height: 16),
 
                   // Timer card
-                  _buildTimerCard(),
+                  //_buildTimerCard(),
 
-                  const SizedBox(height: 16),
+                  //const SizedBox(height: 16),
 
                   // Exercise input form
                   _buildExerciseForm(),
@@ -121,7 +123,7 @@ class _FitTestScreenState extends State<FitTestScreen> {
                   const SizedBox(height: 16),
 
                   // Previous results preview
-                  _buildPreviousResultsPreview(fitTestProvider),
+                  //_buildPreviousResultsPreview(fitTestProvider),
                 ],
               ),
             ),
@@ -234,7 +236,7 @@ class _FitTestScreenState extends State<FitTestScreen> {
                 child: Row(
                   children: [
                     Text(
-                      'Test Date: ${_formatDate(_selectedTestDate.toIso8601String())}',
+                      'Test Date: ${utils.formatDate(_selectedTestDate.toIso8601String())}',
                     ),
                     const SizedBox(width: 8),
                     const Icon(
@@ -425,7 +427,7 @@ class _FitTestScreenState extends State<FitTestScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Test #${latestTest.testNumber} • ${_formatDate(latestTest.testDate)}',
+              'Test #${latestTest.testNumber} • ${utils.formatDate(latestTest.testDate)}',
             ),
             const SizedBox(height: 8),
             Text('Total Reps: ${latestTest.totalReps}'),
@@ -635,33 +637,190 @@ class _FitTestScreenState extends State<FitTestScreen> {
       MaterialPageRoute(builder: (context) => const FitTestHistoryScreen()),
     );
   }
-
-  String _formatDate(String dateString) {
-    final date = DateTime.parse(dateString);
-    final months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return '${date.day} ${months[date.month - 1]} ${date.year}';
-  }
 }
+
+/// Screen showing fit test history and comparisons
+// lib/screens/fit_test_screen.dart
+
+// ... (imports and FitTestScreen StatefulWidget/State) ...
 
 /// Screen showing fit test history and comparisons
 class FitTestHistoryScreen extends StatelessWidget {
   const FitTestHistoryScreen({super.key});
 
+  // Helper method for building exercise result row
+  Widget _buildExerciseResult(String exercise, int reps) {
+    // ... (your implementation)
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(exercise),
+          Text(
+            '$reps reps',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showFitTestDetails(
+      BuildContext context, // This is the context from the ListTile's builder
+      FitTest fitTest,
+      // List<FitTest> allTests, // Not strictly needed for this version
+      ) {
+    final fitTestProvider = Provider.of<FitTestProvider>(context, listen: false);
+
+    // It's good practice to capture ScaffoldMessengerState if you plan to use it post-await
+    // However, for simple SnackBars, checking mounted status of the original context (implicitly)
+    // or the dialog's context is often sufficient.
+
+    showDialog(
+      context: context, // Use the passed context for showing the dialog
+      builder: (BuildContext dialogContext) { // Dialog's own context
+        // This is a common pattern: if the Stateful widget hosting the context
+        // that launched the dialog is unmounted, then the dialog itself will
+        // also be dismissed. The check primarily applies to operations within
+        // the original context, or if the dialog might itself have async operations
+        // after which 'dialogContext' could be invalid.
+
+        return AlertDialog(
+          title: Text('Fit Test #${fitTest.testNumber}'),
+          content: SingleChildScrollView(
+            // ... (your content Column)
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Date: ${utils.formatDate(fitTest.testDate)}'),
+                const SizedBox(height: 16),
+                _buildExerciseResult('Switch Kicks', fitTest.switchKicks),
+                _buildExerciseResult('Power Jacks', fitTest.powerJacks),
+                _buildExerciseResult('Power Knees', fitTest.powerKnees),
+                _buildExerciseResult('Power Jumps', fitTest.powerJumps),
+                _buildExerciseResult('Globe Jumps', fitTest.globeJumps),
+                _buildExerciseResult('Suicide Jumps', fitTest.suicideJumps),
+                _buildExerciseResult('Pushup Jacks', fitTest.pushupJacks),
+                _buildExerciseResult(
+                  'Low Plank Oblique',
+                  fitTest.lowPlankOblique,
+                ),
+                const Divider(),
+                Text(
+                  'Total: ${fitTest.totalReps} reps',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                if (fitTest.notes != null && fitTest.notes!.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  const Text('Notes:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text(fitTest.notes!),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Close'),
+            ),
+            TextButton(
+              onPressed: () async {
+                if (fitTest.id == null) {
+                  // It's generally safe to use dialogContext here before an await
+                  // because if this button is pressed, the dialog is still visible.
+                  Navigator.pop(dialogContext);
+                  // And context (from ListTile) should also still be valid.
+                  if (!context.mounted) return; // FIX: Check context before using
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Error: Test ID missing.')),
+                  );
+                  return;
+                }
+
+                // Show confirmation dialog
+                // The `context` here is the one from the ListTile, it's the one
+                // that launched the _showFitTestDetails dialog.
+                if (!context.mounted) return; // FIX: Check context before showing another dialog
+                bool? confirmDelete = await showDialog<bool>(
+                  context: context, // Use the outer context
+                  builder: (BuildContext confirmCtx) => AlertDialog(
+                    title: const Text('Confirm Delete'),
+                    content: Text(
+                        'Delete Test #${fitTest.testNumber} from ${utils.formatDate(fitTest.testDate)}?'),
+                    actions: <Widget>[
+                      TextButton(onPressed: () => Navigator.pop(confirmCtx, false), child: const Text('Cancel')),
+                      TextButton(
+                        onPressed: () => Navigator.pop(confirmCtx, true),
+                        child: const Text('Delete', style: TextStyle(color: Colors.red)),
+                      ),
+                    ],
+                  ),
+                );
+
+                // After the await for confirmDelete dialog
+                if (confirmDelete == true) {
+                  try {
+                    // ASYNC GAP for deleting from provider
+                    await fitTestProvider.deleteFitTest(fitTest.id!);
+
+                    // FIX: Check if dialogContext is still valid (its widget is mounted)
+                    // This is a bit tricky because dialogContext is for the AlertDialog.
+                    // A simpler way is to check the original context. If the original
+                    // screen that launched the dialog is gone, the dialog is likely gone too.
+                    // However, the most robust way is to pass the mounted check from
+                    // the stateful widget that owns the original context if possible,
+                    // or rely on Navigator.pop not throwing if context is bad (it usually doesn't crash).
+
+                    // More direct check for the dialog:
+                    // Check if the current route associated with dialogContext is still active.
+                    // This is less common. Usually, we check the 'mounted' status of the
+                    // widget that *owns* the context that launched the dialog.
+
+                    // Attempt to pop the details dialog.
+                    // If dialogContext's widget is no longer mounted, this might not find it,
+                    // but usually, it won't throw a critical error.
+                    // A common pattern is to just call pop and if it was already popped by
+                    // the parent screen disappearing, it's a no-op.
+                    if (dialogContext.mounted) { // Check if the dialog's context is still mounted
+                      Navigator.pop(dialogContext);
+                    }
+
+
+                    // FIX: Check the original context (from ListTile) before showing SnackBar
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Fit test deleted.')),
+                    );
+                  } catch (e) {
+                    // Error occurred during deletion.
+                    // Try to close the details dialog if it's still open.
+                    if (dialogContext.mounted) { // Check if the dialog's context is still mounted
+                      Navigator.pop(dialogContext);
+                    }
+
+                    // FIX: Check the original context before showing error SnackBar
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error deleting: $e')),
+                    );
+                  }
+                }
+              },
+              child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // ... (your build method for FitTestHistoryScreen)
+    // Example call to _showFitTestDetails from the ListTile:
+    // onTap: () => _showFitTestDetails(context, fitTest),
     return Scaffold(
       appBar: AppBar(title: const Text('Fit Test History')),
       body: Consumer<FitTestProvider>(
@@ -685,7 +844,7 @@ class FitTestHistoryScreen extends StatelessWidget {
           return ListView.builder(
             padding: const EdgeInsets.all(16.0),
             itemCount: fitTests.length,
-            itemBuilder: (context, index) {
+            itemBuilder: (BuildContext listTileContext, int index) { // Using a specific name for clarity
               final fitTest = fitTests[index];
               final isLatest = index == fitTests.length - 1;
 
@@ -697,22 +856,19 @@ class FitTestHistoryScreen extends StatelessWidget {
                     backgroundColor: isLatest ? Colors.red : Colors.grey,
                     child: Text(
                       '${fitTest.testNumber}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                     ),
                   ),
                   title: Text('Fit Test #${fitTest.testNumber}'),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(_formatDate(fitTest.testDate)),
+                      Text(utils.formatDate(fitTest.testDate)),
                       Text('Total Reps: ${fitTest.totalReps}'),
                     ],
                   ),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _showFitTestDetails(context, fitTest, fitTests),
+                  onTap: () => _showFitTestDetails(listTileContext, fitTest), // Pass the listTileContext
                 ),
               );
             },
@@ -721,92 +877,5 @@ class FitTestHistoryScreen extends StatelessWidget {
       ),
     );
   }
-
-  void _showFitTestDetails(
-    BuildContext context,
-    FitTest fitTest,
-    List<FitTest> allTests,
-  ) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Fit Test #${fitTest.testNumber}'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Date: ${_formatDate(fitTest.testDate)}'),
-              const SizedBox(height: 16),
-              _buildExerciseResult('Switch Kicks', fitTest.switchKicks),
-              _buildExerciseResult('Power Jacks', fitTest.powerJacks),
-              _buildExerciseResult('Power Knees', fitTest.powerKnees),
-              _buildExerciseResult('Power Jumps', fitTest.powerJumps),
-              _buildExerciseResult('Globe Jumps', fitTest.globeJumps),
-              _buildExerciseResult('Suicide Jumps', fitTest.suicideJumps),
-              _buildExerciseResult('Pushup Jacks', fitTest.pushupJacks),
-              _buildExerciseResult(
-                'Low Plank Oblique',
-                fitTest.lowPlankOblique,
-              ),
-              const Divider(),
-              Text(
-                'Total: ${fitTest.totalReps} reps',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              if (fitTest.notes != null && fitTest.notes!.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                const Text(
-                  'Notes:',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Text(fitTest.notes!),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildExerciseResult(String exercise, int reps) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(exercise),
-          Text(
-            '$reps reps',
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatDate(String dateString) {
-    final date = DateTime.parse(dateString);
-    final months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return '${date.day} ${months[date.month - 1]} ${date.year}';
-  }
 }
+

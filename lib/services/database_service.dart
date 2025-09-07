@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/workout.dart';
@@ -15,8 +16,24 @@ class DatabaseService {
 
   // Get database instance
   Future<Database> get database async {
-    _database ??= await _initDatabase();
+    if (_database == null || !_database!.isOpen) {
+      debugPrint("Database is null or closed, re-initializing...");
+      _database = await _initDatabase();
+    }
     return _database!;
+  }
+
+  // --- NEW: Method to get the database path ---
+  Future<String> getDatabasePath() async {
+    return join(await getDatabasesPath(), _databaseName);
+  }
+
+  // --- NEW: Method to re-initialize the database ---
+  // This can be the same as calling the getter if it handles null _database
+  // or you can make it more explicit.
+  Future<void> reinitializeDatabase() async {
+    debugPrint("Re-initializing database explicitly...");
+    _database = await _initDatabase(); // Re-run initialization
   }
 
   // Initialize the database
@@ -600,6 +617,18 @@ class DatabaseService {
     );
   }
 
+  /// Deletes all workout sessions from the database.
+  Future<void> deleteAllWorkoutSessions() async {
+    final db = await database;
+    try {
+      await db.delete('workout_sessions');
+      debugPrint('All workout sessions deleted successfully.');
+    } catch (e) {
+      debugPrint('Error deleting all workout sessions: $e');
+      // Optionally rethrow or handle more gracefully
+    }
+  }
+
   // FIT TEST CRUD OPERATIONS
   Future<int> insertFitTest(FitTest fitTest) async {
     final db = await database;
@@ -613,6 +642,15 @@ class DatabaseService {
       orderBy: 'test_date ASC',
     );
     return List.generate(maps.length, (i) => FitTest.fromMap(maps[i]));
+  }
+
+  Future<int> deleteFitTest(int id) async {
+    final db = await database;
+    return await db.delete(
+      'fit_test_results',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<FitTest?> getLatestFitTest() async {
@@ -636,7 +674,13 @@ class DatabaseService {
   }
 
   Future<void> close() async {
-    final db = await database;
-    db.close();
+    final db = _database; // Use local var for null safety within this block
+    if (db != null && db.isOpen) {
+      await db.close();
+      _database = null; // Set to null so the getter re-initializes next time
+      debugPrint("Database connection closed.");
+    } else {
+      debugPrint("Database already closed or not initialized.");
+    }
   }
 }
