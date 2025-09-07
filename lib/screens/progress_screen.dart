@@ -729,7 +729,6 @@ class _StartDateDisplay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final utils = UtilsProvider();
     final startDateProvider = StartDateProvider();
 
     return Padding(
@@ -740,7 +739,7 @@ class _StartDateDisplay extends StatelessWidget {
           const Text('Program Started:', style: TextStyle(fontSize: 14)),
           const SizedBox(width: 8),
           Text(
-            utils.formatDateForDisplay(workoutProvider.programStartDate),
+            UtilsProvider.formatDateForDisplay(workoutProvider.programStartDate),
             style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,

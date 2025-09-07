@@ -6,8 +6,6 @@ import '../providers/utils_provider.dart';
 import '../models/fit_test.dart';
 import 'dart:async';
 
-final UtilsProvider _utils = UtilsProvider();
-
 class FitTestScreen extends StatefulWidget {
   const FitTestScreen({super.key});
 
@@ -251,7 +249,7 @@ class _ExerciseForm extends StatelessWidget {
                 child: Row(
                   children: [
                     Text(
-                      'Test Date: ${_utils.formatDate(selectedDate.toIso8601String())}',
+                      'Test Date: ${UtilsProvider.formatDate(selectedDate.toIso8601String())}',
                     ),
                     const SizedBox(width: 8),
                     const Icon(Icons.calendar_today, color: Colors.red),
@@ -473,7 +471,7 @@ class FitTestHistoryScreen extends StatelessWidget {
         // confirmDialogContext is new and local
         title: const Text('Confirm Delete'),
         content: Text(
-          'Delete Test #${fitTest.testNumber} from ${_utils.formatDate(fitTest.testDate)}?',
+          'Delete Test #${fitTest.testNumber} from ${UtilsProvider.formatDate(fitTest.testDate)}?',
         ),
         actions: [
           TextButton(
@@ -587,7 +585,7 @@ class _FitTestHistoryItem extends StatelessWidget {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(_utils.formatDate(fitTest.testDate)),
+            Text(UtilsProvider.formatDate(fitTest.testDate)),
             Text('Total Reps: ${fitTest.totalReps}'),
           ],
         ),
@@ -635,7 +633,7 @@ class _FitTestDetailsDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Date: ${_utils.formatDate(fitTest.testDate)}'),
+            Text('Date: ${UtilsProvider.formatDate(fitTest.testDate)}'),
             const SizedBox(height: 16),
             ..._exerciseNames.asMap().entries.map((entry) {
               final index = entry.key;

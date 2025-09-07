@@ -7,7 +7,7 @@ import '../providers/workout_provider.dart';
 import '../models/workout.dart';
 
 final StartDateProvider _startDateProvider = StartDateProvider();
-final UtilsProvider _utils = UtilsProvider();
+
 
 class ScheduleScreen extends StatelessWidget {
   const ScheduleScreen({super.key});
@@ -524,7 +524,7 @@ class _WorkoutListTile extends StatelessWidget {
     );
 
     final status = _getWorkoutStatus(session, normalizedActualDate);
-    final displayDate = _utils.formatMonthDay(actualWorkoutDate);
+    final displayDate = UtilsProvider.formatMonthDay(actualWorkoutDate);
 
     return ListTile(
       leading: Icon(status.iconData, color: status.color),
@@ -577,7 +577,7 @@ class _WorkoutListTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Date: ${_utils.formatDateForDisplay(actualWorkoutDate)} (Day ${workout.dayNumber})',
+                'Date: ${UtilsProvider.formatDateForDisplay(actualWorkoutDate)} (Day ${workout.dayNumber})',
               ),
               Text(
                 'Type: ${workout.workoutType.replaceAll('_', ' ').toUpperCase()}',

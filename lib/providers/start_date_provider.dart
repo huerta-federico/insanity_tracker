@@ -2,100 +2,187 @@ import 'package:flutter/material.dart';
 import '../providers/workout_provider.dart';
 import '../providers/utils_provider.dart';
 
+/// A provider that handles the program start date selection workflow.
+///
+/// This provider manages the UI flow for selecting a program start date,
+/// including date picker presentation, validation, confirmation dialogs,
+/// and user feedback.
 class StartDateProvider extends ChangeNotifier {
-  UtilsProvider utils = UtilsProvider();
-
+  /// Presents a date picker for selecting the program start date.
+  ///
+  /// This method handles the complete workflow:
+  /// 1. Shows a date picker constrained to Mondays only
+  /// 2. If a date is selected, shows a confirmation dialog
+  /// 3. Updates the workout provider and shows appropriate feedback
+  ///
+  /// Parameters:
+  /// - [context]: The build context for showing dialogs
+  /// - [workoutProvider]: The workout provider to update
+  ///
+  /// Returns a Future that completes when the operation is finished.
   Future<void> pickProgramStartDate(
       BuildContext context,
-      WorkoutProvider provider,
+      WorkoutProvider workoutProvider,
       ) async {
-    final DateTime? currentStartDate = provider.programStartDate;
-    final DateTime? picked = await showDatePicker(
+    final DateTime? picked = await _showStartDatePicker(context, workoutProvider);
+
+    if (!context.mounted || picked == null) return;
+
+    // Only proceed if the selected date is different from current
+    if (picked == workoutProvider.programStartDate) return;
+
+    final bool shouldProceed = await _showConfirmationDialog(context, picked);
+
+    if (!context.mounted || !shouldProceed) return;
+
+    await _updateStartDate(context, workoutProvider, picked);
+  }
+
+  /// Shows the date picker dialog with appropriate constraints.
+  Future<DateTime?> _showStartDatePicker(
+      BuildContext context,
+      WorkoutProvider workoutProvider,
+      ) async {
+    final DateTime? currentStartDate = workoutProvider.programStartDate;
+    final DateTime now = DateTime.now();
+
+    return showDatePicker(
       context: context,
-      initialDate: currentStartDate ??
-          utils.getNearestMonday(
-            DateTime.now().subtract(const Duration(days: 7)),
-          ),
+      initialDate: currentStartDate ?? _getDefaultStartDate(now),
       firstDate: DateTime(2010),
-      lastDate: utils.getNearestMonday(DateTime.now(), allowFuture: false),
+      lastDate: UtilsProvider.getNearestMonday(now, allowFuture: false),
       helpText: 'Select Program Start Date (Monday)',
-      selectableDayPredicate: (DateTime day) {
-        return day.weekday == DateTime.monday;
-      },
-      builder: (context, child) {
-        return Theme(
-          data: ThemeData.light().copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Colors.red,
-              onPrimary: Colors.white,
-              onSurface: Colors.black,
-            ).copyWith(surface: Colors.white),
-          ),
-          child: child!,
-        );
-      },
+      selectableDayPredicate: _isMondaySelectable,
+      builder: _buildDatePickerTheme,
+    );
+  }
+
+  /// Gets the default start date (previous Monday from a week ago).
+  DateTime _getDefaultStartDate(DateTime now) {
+    return UtilsProvider.getNearestMonday(
+      now.subtract(const Duration(days: 7)),
+      allowFuture: false,
+    );
+  }
+
+  /// Determines if a day is selectable (Mondays only).
+  bool _isMondaySelectable(DateTime day) {
+    return day.weekday == DateTime.monday;
+  }
+
+  /// Builds the themed date picker widget.
+  Widget _buildDatePickerTheme(BuildContext context, Widget? child) {
+    return Theme(
+      data: ThemeData.light().copyWith(
+        colorScheme: const ColorScheme.light(
+          primary: Colors.red,
+          onPrimary: Colors.white,
+          onSurface: Colors.black,
+          surface: Colors.white,
+        ),
+      ),
+      child: child!,
+    );
+  }
+
+  /// Shows a confirmation dialog warning about data loss.
+  Future<bool> _showConfirmationDialog(BuildContext context, DateTime picked) async {
+    final bool? result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) => _buildConfirmationDialog(
+        dialogContext,
+        picked,
+      ),
     );
 
-    // Check mounted after await before using context for dialogs/SnackBar
-    if (!context.mounted) return;
+    return result ?? false;
+  }
 
-    if (picked != null && picked != currentStartDate) {
-      // --- START: ADD CONFIRMATION DIALOG ---
-      final bool? shouldChange = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false, // User must explicitly choose an action
-        builder: (BuildContext dialogContext) {
-          return AlertDialog(
-            title: const Text('Confirm Change Start Date'),
-            content: const Text(
-              'Changing the program start date will ERASE all previously logged workout sessions and reset your current progress. Are you sure you want to continue?',
-            ),
-            actions: <Widget>[
-              TextButton(
-                child: const Text('Cancel'),
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-              ),
-              TextButton(
-                child: Text('Change and Reset',
-                    style: TextStyle(color: Colors.red[700])),
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-              ),
-            ],
-          );
-        },
+  /// Builds the confirmation dialog widget.
+  Widget _buildConfirmationDialog(BuildContext dialogContext, DateTime picked) {
+    return AlertDialog(
+      title: const Text('Confirm Start Date Change'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('New start date: ${UtilsProvider.formatDateForDisplay(picked)}'),
+          const SizedBox(height: 12),
+          const Text(
+            'Warning: This will permanently delete all previously logged '
+                'workout sessions and reset your current progress.',
+            style: TextStyle(fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 8),
+          const Text('Are you sure you want to continue?'),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          style: TextButton.styleFrom(foregroundColor: Colors.red[700]),
+          child: const Text('Change and Reset'),
+        ),
+      ],
+    );
+  }
+
+  /// Updates the start date and handles success/error feedback.
+  Future<void> _updateStartDate(
+      BuildContext context,
+      WorkoutProvider workoutProvider,
+      DateTime picked,
+      ) async {
+    try {
+      await workoutProvider.setProgramStartDate(
+        picked,
+        autoPopulatePastWorkouts: true,
       );
-      // --- END: ADD CONFIRMATION DIALOG ---
 
-      if (!context.mounted) return; // Re-check mounted after dialog
+      if (!context.mounted) return;
 
-      if (shouldChange == true) {
-        try {
-          // setProgramStartDate in WorkoutProvider will handle deleting old sessions
-          await provider.setProgramStartDate(
-            picked,
-            autoPopulatePastWorkouts: true, // This can remain true
-          );
-          if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Program start date set to: ${utils.formatDateForDisplay(
-                    picked)}. Past workouts reset and auto-completed.',
-              ),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        } catch (e) {
-          if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error setting start date: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+      _showSuccessMessage(context, picked);
+    } catch (error) {
+      if (!context.mounted) return;
+
+      _showErrorMessage(context, error.toString());
     }
+  }
+
+  /// Shows a success message when the start date is updated.
+  void _showSuccessMessage(BuildContext context, DateTime picked) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Program start date set to ${UtilsProvider.formatDateForDisplay(picked)}. '
+              'Past workouts reset and auto-completed.',
+        ),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  /// Shows an error message when the start date update fails.
+  void _showErrorMessage(BuildContext context, String error) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Failed to set start date: $error'),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'Dismiss',
+          textColor: Colors.white,
+          onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+        ),
+      ),
+    );
   }
 }

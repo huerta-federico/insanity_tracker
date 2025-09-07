@@ -5,7 +5,6 @@ import 'package:insanity_tracker/providers/workout_provider.dart';
 import 'package:insanity_tracker/providers/fit_test_provider.dart'; // Ensure this import is present
 import 'package:insanity_tracker/services/backup_service.dart';
 import 'package:provider/provider.dart';
-
 import '../providers/utils_provider.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -39,7 +38,7 @@ class SettingsScreen extends StatelessWidget {
                 return Text(
                   wp.programStartDate == null
                       ? 'Not set'
-                      : 'Current: ${UtilsProvider().formatDateForDisplay(wp.programStartDate)}',
+                      : 'Current: ${UtilsProvider.formatDateForDisplay(wp.programStartDate)}',
                 );
               },
             ),

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:insanity_tracker/providers/utils_provider.dart';
 import 'package:provider/provider.dart';
 import 'providers/workout_provider.dart';
 import 'providers/fit_test_provider.dart';
 import 'providers/start_date_provider.dart';
+// Note: Removed UtilsProvider import since it's now used statically
 import 'screens/home_screen.dart';
 import 'screens/schedule_screen.dart';
 import 'screens/fit_test_screen.dart';
@@ -24,7 +24,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => WorkoutProvider()),
         ChangeNotifierProvider(create: (_) => FitTestProvider()),
         ChangeNotifierProvider(create: (_) => StartDateProvider()),
-        Provider(create: (_) => UtilsProvider()),
+        // Removed UtilsProvider - it's now a static utility class, no instance needed
       ],
       child: MaterialApp(
         title: 'Insanity Tracker',
