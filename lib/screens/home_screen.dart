@@ -133,19 +133,9 @@ class _WelcomeCard extends StatefulWidget {
 }
 
 class _WelcomeCardState extends State<_WelcomeCard> {
-  late String _dateString;
-  late String _todayName;
+  //late String _dateString;
+  //late String _todayName;
   late int _lastUpdatedDay;
-
-  static const List<String> _dayNames = [
-    'Monday',
-    'Tuesday',
-    'Wednesday',
-    'Thursday',
-    'Friday',
-    'Saturday',
-    'Sunday',
-  ];
 
   @override
   void initState() {
@@ -155,8 +145,8 @@ class _WelcomeCardState extends State<_WelcomeCard> {
 
   void _updateDateInfo() {
     final now = DateTime.now();
-    _todayName = _dayNames[now.weekday - 1];
-    _dateString = '${now.day}/${now.month}/${now.year}';
+    //_todayName = _dayNames[now.weekday - 1];
+    //_dateString = '${now.day}/${now.month}/${now.year}';
     _lastUpdatedDay = now.day;
   }
 
@@ -266,8 +256,9 @@ class _TodaysWorkoutCard extends StatelessWidget {
     fontWeight: FontWeight.w600,
   );
   static const _detailsStyle = TextStyle(fontSize: 14, color: Colors.grey);
-  static const _chipTextStyle = TextStyle(fontSize: 12);
+  //static const _chipTextStyle = TextStyle(fontSize: 12);
   static const _noWorkoutStyle = TextStyle(fontSize: 16, color: Colors.grey);
+  /*
   static const _completedStyle = TextStyle(
     fontSize: 16,
     color: Colors.green,
@@ -278,7 +269,7 @@ class _TodaysWorkoutCard extends StatelessWidget {
     color: Colors.orange,
     fontWeight: FontWeight.bold,
   );
-
+  */
   Color _getWorkoutTypeColor(String workoutType) {
     switch (workoutType) {
       case 'fit_test':

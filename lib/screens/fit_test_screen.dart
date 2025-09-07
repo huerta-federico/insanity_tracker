@@ -449,12 +449,15 @@ class FitTestHistoryScreen extends StatelessWidget {
   }
 
   Future<void> _handleDelete(
-    BuildContext context,
-    BuildContext dialogContext,
+    BuildContext context, // Main screen's context
+    BuildContext dialogContext, // Dialog's context
     FitTest fitTest,
   ) async {
     if (fitTest.id == null) {
-      Navigator.pop(dialogContext);
+      // No async gap before this, but good practice to check if using context from a different scope
+      if (dialogContext.mounted) {
+        Navigator.pop(dialogContext);
+      }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Error: Test ID missing.')),
@@ -463,46 +466,64 @@ class FitTestHistoryScreen extends StatelessWidget {
       return;
     }
 
+    // `showDialog` is an async gap
     final confirmDelete = await showDialog<bool>(
-      context: context,
-      builder: (confirmContext) => AlertDialog(
+      context: context, // Using main context to show a new dialog
+      builder: (confirmDialogContext) => AlertDialog(
+        // confirmDialogContext is new and local
         title: const Text('Confirm Delete'),
         content: Text(
           'Delete Test #${fitTest.testNumber} from ${_utils.formatDate(fitTest.testDate)}?',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(confirmContext, false),
+            onPressed: () => Navigator.pop(confirmDialogContext, false),
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(confirmContext, true),
+            onPressed: () => Navigator.pop(confirmDialogContext, true),
             child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
 
+    // After the await for showDialog
     if (confirmDelete == true) {
-      try {
-        final provider = Provider.of<FitTestProvider>(context, listen: false);
-        await provider.deleteFitTest(fitTest.id!);
+      // It's good practice to check the original context's mounted status
+      // if you plan to use it for something like Provider.of before another await.
+      // However, for Provider.of(..., listen: false), it's generally safe if obtained before the await.
+      // The main concern is UI operations.
 
+      // Store the provider IF the main context is still mounted.
+      // If not, we can't do the delete operation anyway.
+      if (!context.mounted) return;
+      final provider = Provider.of<FitTestProvider>(context, listen: false);
+
+      try {
+        await provider.deleteFitTest(
+          fitTest.id!,
+        ); // ASYNC GAP for the delete operation
+
+        // After deleting, ensure BOTH contexts are still mounted before using them.
         if (dialogContext.mounted) {
-          Navigator.pop(dialogContext);
+          Navigator.pop(dialogContext); // Close the original details dialog
         }
 
         if (context.mounted) {
+          // Main screen's context
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('Fit test deleted.')));
         }
       } catch (e) {
+        // Handle error, ensure contexts are mounted
         if (dialogContext.mounted) {
-          Navigator.pop(dialogContext);
+          Navigator.pop(dialogContext); // Attempt to close the details dialog
         }
 
         if (context.mounted) {
+          // Main screen's context
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(SnackBar(content: Text('Error deleting: $e')));
