@@ -6,8 +6,8 @@ import '../providers/utils_provider.dart';
 import '../models/fit_test.dart';
 import 'dart:async';
 
-UtilsProvider utils = UtilsProvider();
-/// Fit Test screen for inputting and tracking Insanity fit test results
+final UtilsProvider _utils = UtilsProvider();
+
 class FitTestScreen extends StatefulWidget {
   const FitTestScreen({super.key});
 
@@ -15,28 +15,19 @@ class FitTestScreen extends StatefulWidget {
   State<FitTestScreen> createState() => _FitTestScreenState();
 }
 
-class _FitTestScreenState extends State<FitTestScreen> {
+class _FitTestScreenState extends State<FitTestScreen>
+    with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
+  late final List<TextEditingController> _controllers;
+  late final TextEditingController _notesController;
 
-  // Controllers for the 8 exercise inputs
-  final _switchKicksController = TextEditingController();
-  final _powerJacksController = TextEditingController();
-  final _powerKneesController = TextEditingController();
-  final _powerJumpsController = TextEditingController();
-  final _globeJumpsController = TextEditingController();
-  final _suicideJumpsController = TextEditingController();
-  final _pushupJacksController = TextEditingController();
-  final _lowPlankObliqueController = TextEditingController();
-  final _notesController = TextEditingController();
+  final int _currentExerciseIndex = 0;
 
-  // Timer functionality
-  Timer? _timer;
-  int _timeRemaining = 60; // 1 minute for each exercise
-  bool _isTimerRunning = false;
-  int _currentExerciseIndex = 0;
+  // Form state
+  DateTime _selectedTestDate = DateTime.now();
+  bool _isSaving = false;
 
-  // Exercise names for timer display
-  final List<String> _exerciseNames = [
+  static const List<String> _exerciseNames = [
     'Switch Kicks',
     'Power Jacks',
     'Power Knees',
@@ -47,32 +38,11 @@ class _FitTestScreenState extends State<FitTestScreen> {
     'Low Plank Oblique',
   ];
 
-  // Controllers list for easy access
-  late List<TextEditingController> _controllers;
-
   @override
   void initState() {
     super.initState();
-    _controllers = [
-      _switchKicksController,
-      _powerJacksController,
-      _powerKneesController,
-      _powerJumpsController,
-      _globeJumpsController,
-      _suicideJumpsController,
-      _pushupJacksController,
-      _lowPlankObliqueController,
-    ];
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    for (var controller in _controllers) {
-      controller.dispose();
-    }
-    _notesController.dispose();
-    super.dispose();
+    _controllers = List.generate(8, (_) => TextEditingController());
+    _notesController = TextEditingController();
   }
 
   @override
@@ -83,80 +53,42 @@ class _FitTestScreenState extends State<FitTestScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.history),
-            onPressed: _showPreviousResults,
+            onPressed: _navigateToHistory,
             tooltip: 'View Previous Results',
           ),
         ],
       ),
-      body: Consumer<FitTestProvider>(
-        builder: (context, fitTestProvider, child) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16.0),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Instructions card
-                  //_buildInstructionsCard(),
-
-                  //const SizedBox(height: 16),
-
-                  // Timer card
-                  //_buildTimerCard(),
-
-                  //const SizedBox(height: 16),
-
-                  // Exercise input form
-                  _buildExerciseForm(),
-
-                  const SizedBox(height: 16),
-
-                  // Notes section
-                  _buildNotesSection(),
-
-                  const SizedBox(height: 24),
-
-                  // Action buttons
-                  _buildActionButtons(fitTestProvider),
-
-                  const SizedBox(height: 16),
-
-                  // Previous results preview
-                  //_buildPreviousResultsPreview(fitTestProvider),
-                ],
+      body: Form(
+        key: _formKey,
+        child: CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              sliver: SliverToBoxAdapter(
+                child: _ExerciseForm(
+                  selectedDate: _selectedTestDate,
+                  onDateChanged: _updateSelectedDate,
+                  controllers: _controllers,
+                  exerciseNames: _exerciseNames,
+                  currentExerciseIndex: _currentExerciseIndex,
+                ),
               ),
             ),
-          );
-        },
-      ),
-    );
-  }
-
-  /// Instructions card explaining the fit test
-  Widget _buildInstructionsCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Fit Test Instructions',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              sliver: SliverToBoxAdapter(
+                child: _NotesSection(controller: _notesController),
+              ),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Perform each exercise for 1 minute and record the number of reps completed. Rest 1 minute between exercises.',
-              style: TextStyle(fontSize: 14),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.timer, size: 16, color: Colors.blue),
-                const SizedBox(width: 4),
-                const Text('Use the timer below to track each exercise'),
-              ],
+            SliverPadding(
+              padding: const EdgeInsets.all(16),
+              sliver: SliverToBoxAdapter(
+                child: _ActionButtons(
+                  isSaving: _isSaving,
+                  onClear: _showClearDialog,
+                  onSave: _saveFitTest,
+                ),
+              ),
             ),
           ],
         ),
@@ -164,61 +96,144 @@ class _FitTestScreenState extends State<FitTestScreen> {
     );
   }
 
-  /// Timer card with countdown functionality
-  Widget _buildTimerCard() {
-    return Card(
-      color: _isTimerRunning ? Colors.red.shade50 : null,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Text(
-              _currentExerciseIndex < _exerciseNames.length
-                  ? _exerciseNames[_currentExerciseIndex]
-                  : 'Complete!',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '${(_timeRemaining ~/ 60).toString().padLeft(2, '0')}:${(_timeRemaining % 60).toString().padLeft(2, '0')}',
-              style: TextStyle(
-                fontSize: 48,
-                fontWeight: FontWeight.bold,
-                color: _timeRemaining <= 10 ? Colors.red : Colors.black,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _isTimerRunning ? _pauseTimer : _startTimer,
-                  icon: Icon(_isTimerRunning ? Icons.pause : Icons.play_arrow),
-                  label: Text(_isTimerRunning ? 'Pause' : 'Start'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _resetTimer,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Reset'),
-                ),
-                if (_currentExerciseIndex < _exerciseNames.length - 1)
-                  OutlinedButton.icon(
-                    onPressed: _nextExercise,
-                    icon: const Icon(Icons.skip_next),
-                    label: const Text('Next'),
-                  ),
-              ],
-            ),
-          ],
-        ),
+  void _updateSelectedDate(DateTime date) {
+    if (mounted) {
+      setState(() => _selectedTestDate = date);
+    }
+  }
+
+  void _showClearDialog() {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Clear Form'),
+        content: const Text('Are you sure you want to clear all entered data?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              _performClear();
+              Navigator.pop(dialogContext);
+            },
+            child: const Text('Clear'),
+          ),
+        ],
       ),
     );
   }
 
-  DateTime _selectedTestDate = DateTime.now();
+  void _performClear() {
+    if (!mounted) return;
 
-  /// Exercise input form with all 8 exercises
-  Widget _buildExerciseForm() {
+    _formKey.currentState?.reset();
+    for (final controller in _controllers) {
+      controller.clear();
+    }
+    _notesController.clear();
+
+    setState(() {
+      _selectedTestDate = DateTime.now();
+    });
+  }
+
+  Future<void> _saveFitTest() async {
+    if (!_formKey.currentState!.validate()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please fill in all required fields')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _isSaving = true);
+
+    try {
+      final provider = Provider.of<FitTestProvider>(context, listen: false);
+      final fitTest = FitTest(
+        testDate: _selectedTestDate.toIso8601String().split('T')[0],
+        testNumber: provider.getNextTestNumber(),
+        switchKicks: int.tryParse(_controllers[0].text) ?? 0,
+        powerJacks: int.tryParse(_controllers[1].text) ?? 0,
+        powerKnees: int.tryParse(_controllers[2].text) ?? 0,
+        powerJumps: int.tryParse(_controllers[3].text) ?? 0,
+        globeJumps: int.tryParse(_controllers[4].text) ?? 0,
+        suicideJumps: int.tryParse(_controllers[5].text) ?? 0,
+        pushupJacks: int.tryParse(_controllers[6].text) ?? 0,
+        lowPlankOblique: int.tryParse(_controllers[7].text) ?? 0,
+        notes: _notesController.text.isEmpty ? null : _notesController.text,
+      );
+
+      await provider.saveFitTest(fitTest);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Fit test saved successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _performClear();
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving fit test: $error'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  void _navigateToHistory() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const FitTestHistoryScreen()),
+    );
+  }
+}
+
+class _ExerciseForm extends StatelessWidget {
+  final DateTime selectedDate;
+  final ValueChanged<DateTime> onDateChanged;
+  final List<TextEditingController> controllers;
+  final List<String> exerciseNames;
+  final int currentExerciseIndex;
+
+  const _ExerciseForm({
+    required this.selectedDate,
+    required this.onDateChanged,
+    required this.controllers,
+    required this.exerciseNames,
+    required this.currentExerciseIndex,
+  });
+
+  Future<void> _pickDate(BuildContext context) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: selectedDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) {
+      onDateChanged(picked);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -230,37 +245,32 @@ class _FitTestScreenState extends State<FitTestScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             InkWell(
-              onTap: _pickTestDate, // Extracted date picking logic to a method
+              onTap: () => _pickDate(context),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8.0),
                 child: Row(
                   children: [
                     Text(
-                      'Test Date: ${utils.formatDate(_selectedTestDate.toIso8601String())}',
+                      'Test Date: ${_utils.formatDate(selectedDate.toIso8601String())}',
                     ),
                     const SizedBox(width: 8),
-                    const Icon(
-                      Icons.calendar_today,
-                      color: Colors.red,
-                    ), // Or your theme's primary color
+                    const Icon(Icons.calendar_today, color: Colors.red),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 16),
-
-            // Create input fields for each exercise
-            ..._exerciseNames.asMap().entries.map((entry) {
-              int index = entry.key;
-              String exerciseName = entry.value;
+            ...exerciseNames.asMap().entries.map((entry) {
+              final index = entry.key;
+              final exerciseName = entry.value;
+              final isHighlighted = currentExerciseIndex == index;
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12.0),
-                child: _buildExerciseInput(
-                  exerciseName,
-                  _controllers[index],
-                  isHighlighted:
-                      _currentExerciseIndex == index && _isTimerRunning,
+                child: _ExerciseInput(
+                  exerciseName: exerciseName,
+                  controller: controllers[index],
+                  isHighlighted: isHighlighted,
                 ),
               );
             }),
@@ -269,27 +279,21 @@ class _FitTestScreenState extends State<FitTestScreen> {
       ),
     );
   }
+}
 
-  void _pickTestDate() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedTestDate,
-      firstDate: DateTime(2000), // Or an appropriate earlier date
-      lastDate: DateTime.now(), // Prevent future dates for past entries
-    );
-    if (picked != null && picked != _selectedTestDate) {
-      setState(() {
-        _selectedTestDate = picked;
-      });
-    }
-  }
+class _ExerciseInput extends StatelessWidget {
+  final String exerciseName;
+  final TextEditingController controller;
+  final bool isHighlighted;
 
-  /// Individual exercise input field
-  Widget _buildExerciseInput(
-    String exerciseName,
-    TextEditingController controller, {
-    bool isHighlighted = false,
-  }) {
+  const _ExerciseInput({
+    required this.exerciseName,
+    required this.controller,
+    required this.isHighlighted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       decoration: isHighlighted
           ? BoxDecoration(
@@ -320,9 +324,15 @@ class _FitTestScreenState extends State<FitTestScreen> {
       ),
     );
   }
+}
 
-  /// Notes section for additional comments
-  Widget _buildNotesSection() {
+class _NotesSection extends StatelessWidget {
+  final TextEditingController controller;
+
+  const _NotesSection({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -335,7 +345,7 @@ class _FitTestScreenState extends State<FitTestScreen> {
             ),
             const SizedBox(height: 8),
             TextFormField(
-              controller: _notesController,
+              controller: controller,
               maxLines: 3,
               decoration: const InputDecoration(
                 hintText: 'How did you feel? Any observations?',
@@ -347,14 +357,26 @@ class _FitTestScreenState extends State<FitTestScreen> {
       ),
     );
   }
+}
 
-  /// Action buttons for saving the fit test
-  Widget _buildActionButtons(FitTestProvider fitTestProvider) {
+class _ActionButtons extends StatelessWidget {
+  final bool isSaving;
+  final VoidCallback onClear;
+  final VoidCallback onSave;
+
+  const _ActionButtons({
+    required this.isSaving,
+    required this.onClear,
+    required this.onSave,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Row(
       children: [
         Expanded(
           child: OutlinedButton.icon(
-            onPressed: _clearForm,
+            onPressed: isSaving ? null : onClear,
             icon: const Icon(Icons.clear),
             label: const Text('Clear Form'),
           ),
@@ -363,300 +385,288 @@ class _FitTestScreenState extends State<FitTestScreen> {
         Expanded(
           flex: 2,
           child: ElevatedButton.icon(
-            onPressed: _isSaving
-                ? null
-                : () => _saveFitTest(fitTestProvider), // Disable if saving
-            icon: _isSaving
-                ? SizedBox(
-                    width: 24,
-                    height: 24,
+            onPressed: isSaving ? null : onSave,
+            icon: isSaving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: Colors.white,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   )
                 : const Icon(Icons.save),
-            label: Text(_isSaving ? 'Saving...' : 'Save Fit Test'),
+            label: Text(isSaving ? 'Saving...' : 'Save Fit Test'),
           ),
         ),
       ],
     );
   }
+}
 
-  /// Preview of previous fit test results
-  Widget _buildPreviousResultsPreview(FitTestProvider fitTestProvider) {
-    final latestTest = fitTestProvider.getLatestFitTest();
+class FitTestHistoryScreen extends StatelessWidget {
+  const FitTestHistoryScreen({super.key});
 
-    if (latestTest == null) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              const Icon(Icons.fitness_center, size: 48, color: Colors.grey),
-              const SizedBox(height: 8),
-              const Text(
-                'No previous fit tests',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const Text('This will be your first fit test!'),
-            ],
-          ),
-        ),
-      );
-    }
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Fit Test History')),
+      body: Consumer<FitTestProvider>(
+        builder: (context, fitTestProvider, _) {
+          final fitTests = fitTestProvider.getAllResults();
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Previous Result',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                TextButton(
-                  onPressed: _showPreviousResults,
-                  child: const Text('View All'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Test #${latestTest.testNumber} • ${utils.formatDate(latestTest.testDate)}',
-            ),
-            const SizedBox(height: 8),
-            Text('Total Reps: ${latestTest.totalReps}'),
-          ],
-        ),
+          if (fitTests.isEmpty) {
+            return const _EmptyHistoryView();
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(16.0),
+            itemCount: fitTests.length,
+            itemBuilder: (context, index) {
+              final fitTest = fitTests[index];
+              final isLatest = index == fitTests.length - 1;
+
+              return _FitTestHistoryItem(
+                fitTest: fitTest,
+                isLatest: isLatest,
+                onTap: () => _showFitTestDetails(context, fitTest),
+              );
+            },
+          );
+        },
       ),
     );
   }
 
-  // Timer functionality methods
-  void _startTimer() {
-    setState(() {
-      _isTimerRunning = true;
-    });
-
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {
-        if (_timeRemaining > 0) {
-          _timeRemaining--;
-        } else {
-          _pauseTimer();
-          _showTimeUpDialog();
-        }
-      });
-    });
+  void _showFitTestDetails(BuildContext context, FitTest fitTest) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => _FitTestDetailsDialog(
+        fitTest: fitTest,
+        onDelete: () => _handleDelete(context, dialogContext, fitTest),
+      ),
+    );
   }
 
-  void _pauseTimer() {
-    _timer?.cancel();
-    setState(() {
-      _isTimerRunning = false;
-    });
-  }
-
-  void _resetTimer() {
-    _timer?.cancel();
-    setState(() {
-      _isTimerRunning = false;
-      _timeRemaining = 60;
-    });
-  }
-
-  void _nextExercise() {
-    _resetTimer();
-    setState(() {
-      if (_currentExerciseIndex < _exerciseNames.length - 1) {
-        _currentExerciseIndex++;
+  Future<void> _handleDelete(
+    BuildContext context,
+    BuildContext dialogContext,
+    FitTest fitTest,
+  ) async {
+    if (fitTest.id == null) {
+      Navigator.pop(dialogContext);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error: Test ID missing.')),
+        );
       }
-    });
-  }
-
-  void _showTimeUpDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Time\'s Up!'),
-        content: Text(
-          '${_exerciseNames[_currentExerciseIndex]} complete!\n\nRest for 1 minute before the next exercise.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              if (_currentExerciseIndex < _exerciseNames.length - 1) {
-                _nextExercise();
-              }
-            },
-            child: Text(
-              _currentExerciseIndex < _exerciseNames.length - 1
-                  ? 'Next Exercise'
-                  : 'Finish',
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Form handling methods
-  void _clearForm() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Clear Form'),
-        content: const Text('Are you sure you want to clear all entered data?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              for (var controller in _controllers) {
-                controller.clear();
-              }
-              _notesController.clear();
-              _resetTimer();
-              setState(() {
-                _currentExerciseIndex = 0;
-              });
-              Navigator.pop(context);
-            },
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  bool _isSaving = false;
-
-  void _saveFitTest(FitTestProvider fitTestProvider) {
-    if (!_formKey.currentState!.validate()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in all required fields')),
-      );
       return;
     }
 
-    setState(() {
-      // Update UI
-      _isSaving = true;
-    });
-
-    // Disable button to prevent multiple saves while processing
-    // You might want to add a _isSaving state variable for this
-    // setState(() { _isSaving = true; });
-
-    final fitTest = FitTest(
-      testDate: _selectedTestDate.toIso8601String().split(
-        'T',
-      )[0], // Assuming you added _selectedTestDate
-      testNumber: fitTestProvider.getNextTestNumber(),
-      switchKicks:
-          int.tryParse(_switchKicksController.text) ??
-          0, // Use tryParse for safety
-      powerJacks: int.tryParse(_powerJacksController.text) ?? 0,
-      powerKnees: int.tryParse(_powerKneesController.text) ?? 0,
-      powerJumps: int.tryParse(_powerJumpsController.text) ?? 0,
-      globeJumps: int.tryParse(_globeJumpsController.text) ?? 0,
-      suicideJumps: int.tryParse(_suicideJumpsController.text) ?? 0,
-      pushupJacks: int.tryParse(_pushupJacksController.text) ?? 0,
-      lowPlankOblique: int.tryParse(_lowPlankObliqueController.text) ?? 0,
-      notes: _notesController.text.isEmpty ? null : _notesController.text,
+    final confirmDelete = await showDialog<bool>(
+      context: context,
+      builder: (confirmContext) => AlertDialog(
+        title: const Text('Confirm Delete'),
+        content: Text(
+          'Delete Test #${fitTest.testNumber} from ${_utils.formatDate(fitTest.testDate)}?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(confirmContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(confirmContext, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
     );
 
-    fitTestProvider
-        .saveFitTest(fitTest)
-        .then((_) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Fit test saved successfully!'),
-              backgroundColor: Colors.green, // Optional: for positive feedback
-            ),
-          );
-          _performAutomaticClear(); // New method to clear without dialog
+    if (confirmDelete == true) {
+      try {
+        final provider = Provider.of<FitTestProvider>(context, listen: false);
+        await provider.deleteFitTest(fitTest.id!);
 
-          // Option: Navigate to the history screen or the details of the saved test
-          // For example, to navigate to the history screen:
-          // Navigator.pop(context); // If FitTestScreen was pushed
-          // Navigator.pushReplacement( // Or replace if you don't want to go back to empty form
-          //   context,
-          //   MaterialPageRoute(builder: (context) => const FitTestHistoryScreen()),
-          // );
+        if (dialogContext.mounted) {
+          Navigator.pop(dialogContext);
+        }
 
-          // If you want to navigate to the details of *this specific* saved test,
-          // your saveFitTest method in the provider might need to return the saved FitTest object (or its ID)
-          // Then you could use that to navigate to a detail view.
-        })
-        .catchError((error) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error saving fit test: $error'),
-              backgroundColor: Colors.red, // Optional: for error feedback
-            ),
-          );
-        })
-        .whenComplete(() {
-          // Re-enable button if you disabled it
-          // setState(() { _isSaving = false; });
-          setState(() {
-            // Update UI
-            _isSaving = false;
-          });
-        });
-  }
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Fit test deleted.')));
+        }
+      } catch (e) {
+        if (dialogContext.mounted) {
+          Navigator.pop(dialogContext);
+        }
 
-  // New method to clear the form without confirmation
-  void _performAutomaticClear() {
-    _formKey.currentState?.reset(); // Resets validation state too
-    for (var controller in _controllers) {
-      controller.clear();
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error deleting: $e')));
+        }
+      }
     }
-    _notesController.clear();
-    _resetTimer(); // Assuming this should also happen
-    setState(() {
-      _currentExerciseIndex = 0;
-      _selectedTestDate = DateTime.now(); // Reset selected date to today
-    });
   }
+}
 
-  void _showPreviousResults() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const FitTestHistoryScreen()),
+class _EmptyHistoryView extends StatelessWidget {
+  const _EmptyHistoryView();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.fitness_center, size: 64, color: Colors.grey),
+          SizedBox(height: 16),
+          Text(
+            'No fit tests recorded yet',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          SizedBox(height: 8),
+          Text('Complete your first fit test to see results here'),
+        ],
+      ),
     );
   }
 }
 
-/// Screen showing fit test history and comparisons
-// lib/screens/fit_test_screen.dart
+class _FitTestHistoryItem extends StatelessWidget {
+  final FitTest fitTest;
+  final bool isLatest;
+  final VoidCallback onTap;
 
-// ... (imports and FitTestScreen StatefulWidget/State) ...
+  const _FitTestHistoryItem({
+    required this.fitTest,
+    required this.isLatest,
+    required this.onTap,
+  });
 
-/// Screen showing fit test history and comparisons
-class FitTestHistoryScreen extends StatelessWidget {
-  const FitTestHistoryScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12.0),
+      color: isLatest ? Colors.red.shade50 : null,
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: isLatest ? Colors.red : Colors.grey,
+          child: Text(
+            '${fitTest.testNumber}',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        title: Text('Fit Test #${fitTest.testNumber}'),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(_utils.formatDate(fitTest.testDate)),
+            Text('Total Reps: ${fitTest.totalReps}'),
+          ],
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onTap,
+      ),
+    );
+  }
+}
 
-  // Helper method for building exercise result row
-  Widget _buildExerciseResult(String exercise, int reps) {
-    // ... (your implementation)
+class _FitTestDetailsDialog extends StatelessWidget {
+  final FitTest fitTest;
+  final VoidCallback onDelete;
+
+  const _FitTestDetailsDialog({required this.fitTest, required this.onDelete});
+
+  static const List<String> _exerciseNames = [
+    'Switch Kicks',
+    'Power Jacks',
+    'Power Knees',
+    'Power Jumps',
+    'Globe Jumps',
+    'Suicide Jumps',
+    'Pushup Jacks',
+    'Low Plank Oblique',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final exerciseValues = [
+      fitTest.switchKicks,
+      fitTest.powerJacks,
+      fitTest.powerKnees,
+      fitTest.powerJumps,
+      fitTest.globeJumps,
+      fitTest.suicideJumps,
+      fitTest.pushupJacks,
+      fitTest.lowPlankOblique,
+    ];
+
+    return AlertDialog(
+      title: Text('Fit Test #${fitTest.testNumber}'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Date: ${_utils.formatDate(fitTest.testDate)}'),
+            const SizedBox(height: 16),
+            ..._exerciseNames.asMap().entries.map((entry) {
+              final index = entry.key;
+              final exerciseName = entry.value;
+              final reps = exerciseValues[index];
+
+              return _ExerciseResult(exerciseName: exerciseName, reps: reps);
+            }),
+            const Divider(),
+            Text(
+              'Total: ${fitTest.totalReps} reps',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            if (fitTest.notes?.isNotEmpty == true) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'Notes:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              Text(fitTest.notes!),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+        TextButton(
+          onPressed: onDelete,
+          child: const Text('Delete', style: TextStyle(color: Colors.red)),
+        ),
+      ],
+    );
+  }
+}
+
+class _ExerciseResult extends StatelessWidget {
+  final String exerciseName;
+  final int reps;
+
+  const _ExerciseResult({required this.exerciseName, required this.reps});
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(exercise),
+          Text(exerciseName),
           Text(
             '$reps reps',
             style: const TextStyle(fontWeight: FontWeight.bold),
@@ -665,217 +675,4 @@ class FitTestHistoryScreen extends StatelessWidget {
       ),
     );
   }
-
-  void _showFitTestDetails(
-      BuildContext context, // This is the context from the ListTile's builder
-      FitTest fitTest,
-      // List<FitTest> allTests, // Not strictly needed for this version
-      ) {
-    final fitTestProvider = Provider.of<FitTestProvider>(context, listen: false);
-
-    // It's good practice to capture ScaffoldMessengerState if you plan to use it post-await
-    // However, for simple SnackBars, checking mounted status of the original context (implicitly)
-    // or the dialog's context is often sufficient.
-
-    showDialog(
-      context: context, // Use the passed context for showing the dialog
-      builder: (BuildContext dialogContext) { // Dialog's own context
-        // This is a common pattern: if the Stateful widget hosting the context
-        // that launched the dialog is unmounted, then the dialog itself will
-        // also be dismissed. The check primarily applies to operations within
-        // the original context, or if the dialog might itself have async operations
-        // after which 'dialogContext' could be invalid.
-
-        return AlertDialog(
-          title: Text('Fit Test #${fitTest.testNumber}'),
-          content: SingleChildScrollView(
-            // ... (your content Column)
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Date: ${utils.formatDate(fitTest.testDate)}'),
-                const SizedBox(height: 16),
-                _buildExerciseResult('Switch Kicks', fitTest.switchKicks),
-                _buildExerciseResult('Power Jacks', fitTest.powerJacks),
-                _buildExerciseResult('Power Knees', fitTest.powerKnees),
-                _buildExerciseResult('Power Jumps', fitTest.powerJumps),
-                _buildExerciseResult('Globe Jumps', fitTest.globeJumps),
-                _buildExerciseResult('Suicide Jumps', fitTest.suicideJumps),
-                _buildExerciseResult('Pushup Jacks', fitTest.pushupJacks),
-                _buildExerciseResult(
-                  'Low Plank Oblique',
-                  fitTest.lowPlankOblique,
-                ),
-                const Divider(),
-                Text(
-                  'Total: ${fitTest.totalReps} reps',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                if (fitTest.notes != null && fitTest.notes!.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  const Text('Notes:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  Text(fitTest.notes!),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Close'),
-            ),
-            TextButton(
-              onPressed: () async {
-                if (fitTest.id == null) {
-                  // It's generally safe to use dialogContext here before an await
-                  // because if this button is pressed, the dialog is still visible.
-                  Navigator.pop(dialogContext);
-                  // And context (from ListTile) should also still be valid.
-                  if (!context.mounted) return; // FIX: Check context before using
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Error: Test ID missing.')),
-                  );
-                  return;
-                }
-
-                // Show confirmation dialog
-                // The `context` here is the one from the ListTile, it's the one
-                // that launched the _showFitTestDetails dialog.
-                if (!context.mounted) return; // FIX: Check context before showing another dialog
-                bool? confirmDelete = await showDialog<bool>(
-                  context: context, // Use the outer context
-                  builder: (BuildContext confirmCtx) => AlertDialog(
-                    title: const Text('Confirm Delete'),
-                    content: Text(
-                        'Delete Test #${fitTest.testNumber} from ${utils.formatDate(fitTest.testDate)}?'),
-                    actions: <Widget>[
-                      TextButton(onPressed: () => Navigator.pop(confirmCtx, false), child: const Text('Cancel')),
-                      TextButton(
-                        onPressed: () => Navigator.pop(confirmCtx, true),
-                        child: const Text('Delete', style: TextStyle(color: Colors.red)),
-                      ),
-                    ],
-                  ),
-                );
-
-                // After the await for confirmDelete dialog
-                if (confirmDelete == true) {
-                  try {
-                    // ASYNC GAP for deleting from provider
-                    await fitTestProvider.deleteFitTest(fitTest.id!);
-
-                    // FIX: Check if dialogContext is still valid (its widget is mounted)
-                    // This is a bit tricky because dialogContext is for the AlertDialog.
-                    // A simpler way is to check the original context. If the original
-                    // screen that launched the dialog is gone, the dialog is likely gone too.
-                    // However, the most robust way is to pass the mounted check from
-                    // the stateful widget that owns the original context if possible,
-                    // or rely on Navigator.pop not throwing if context is bad (it usually doesn't crash).
-
-                    // More direct check for the dialog:
-                    // Check if the current route associated with dialogContext is still active.
-                    // This is less common. Usually, we check the 'mounted' status of the
-                    // widget that *owns* the context that launched the dialog.
-
-                    // Attempt to pop the details dialog.
-                    // If dialogContext's widget is no longer mounted, this might not find it,
-                    // but usually, it won't throw a critical error.
-                    // A common pattern is to just call pop and if it was already popped by
-                    // the parent screen disappearing, it's a no-op.
-                    if (dialogContext.mounted) { // Check if the dialog's context is still mounted
-                      Navigator.pop(dialogContext);
-                    }
-
-
-                    // FIX: Check the original context (from ListTile) before showing SnackBar
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Fit test deleted.')),
-                    );
-                  } catch (e) {
-                    // Error occurred during deletion.
-                    // Try to close the details dialog if it's still open.
-                    if (dialogContext.mounted) { // Check if the dialog's context is still mounted
-                      Navigator.pop(dialogContext);
-                    }
-
-                    // FIX: Check the original context before showing error SnackBar
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Error deleting: $e')),
-                    );
-                  }
-                }
-              },
-              child: const Text('Delete', style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // ... (your build method for FitTestHistoryScreen)
-    // Example call to _showFitTestDetails from the ListTile:
-    // onTap: () => _showFitTestDetails(context, fitTest),
-    return Scaffold(
-      appBar: AppBar(title: const Text('Fit Test History')),
-      body: Consumer<FitTestProvider>(
-        builder: (context, fitTestProvider, child) {
-          final fitTests = fitTestProvider.getAllResults();
-
-          if (fitTests.isEmpty) {
-            return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.fitness_center, size: 64, color: Colors.grey),
-                  SizedBox(height: 16),
-                  Text('No fit tests recorded yet'),
-                  Text('Complete your first fit test to see results here'),
-                ],
-              ),
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(16.0),
-            itemCount: fitTests.length,
-            itemBuilder: (BuildContext listTileContext, int index) { // Using a specific name for clarity
-              final fitTest = fitTests[index];
-              final isLatest = index == fitTests.length - 1;
-
-              return Card(
-                margin: const EdgeInsets.only(bottom: 12.0),
-                color: isLatest ? Colors.red.shade50 : null,
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: isLatest ? Colors.red : Colors.grey,
-                    child: Text(
-                      '${fitTest.testNumber}',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  title: Text('Fit Test #${fitTest.testNumber}'),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(utils.formatDate(fitTest.testDate)),
-                      Text('Total Reps: ${fitTest.totalReps}'),
-                    ],
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _showFitTestDetails(listTileContext, fitTest), // Pass the listTileContext
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
 }
-

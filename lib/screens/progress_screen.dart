@@ -6,650 +6,98 @@ import '../providers/fit_test_provider.dart';
 import '../providers/workout_provider.dart';
 import '../providers/utils_provider.dart';
 
-UtilsProvider utils = UtilsProvider();
-StartDateProvider startDateProvider = StartDateProvider();
-
 /// Progress screen showing workout completion statistics and fit test improvements
-class ProgressScreen extends StatelessWidget {
+class ProgressScreen extends StatefulWidget {
   const ProgressScreen({super.key});
 
   @override
+  State<ProgressScreen> createState() => _ProgressScreenState();
+}
+
+class _ProgressScreenState extends State<ProgressScreen> {
+  // Cache expensive computations
+  Map<String, dynamic>? _cachedProgressData;
+  Map<String, double>? _cachedImprovements;
+  List<dynamic>? _cachedFitTests;
+  Map<String, int>? _cachedCycleStats;
+  int? _cachedStreak;
+
+  @override
   Widget build(BuildContext context) {
-    return Consumer<WorkoutProvider>(
-      builder: (context, workoutProvider, child) {
-        return Scaffold(
-          appBar: AppBar(title: const Text('Progress')),
-          body: Consumer2<WorkoutProvider, FitTestProvider>(
-            builder: (context, workoutProvider, fitTestProvider, child) {
-              if (workoutProvider.isLoading || fitTestProvider.isLoading) {
-                return const Center(child: CircularProgressIndicator());
-              }
+    return Scaffold(
+      appBar: AppBar(title: const Text('Progress')),
+      body: Consumer2<WorkoutProvider, FitTestProvider>(
+        builder: (context, workoutProvider, fitTestProvider, child) {
+          if (workoutProvider.isLoading || fitTestProvider.isLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-              return SingleChildScrollView(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Overall stats card
-                    _buildOverallStatsCard(workoutProvider),
+          // Cache computations to avoid recalculating on every build
+          _updateCachedData(workoutProvider, fitTestProvider);
 
-                    const SizedBox(height: 16),
-
-                    // Fit test progress chart
-                    _buildFitTestProgressChart(fitTestProvider),
-
-                    const SizedBox(height: 16),
-
-                    // Workout completion chart
-                    _buildWorkoutCompletionChart(workoutProvider),
-
-                    const SizedBox(height: 16),
-
-                    // Improvement percentages
-                    _buildImprovementCard(fitTestProvider),
-
-                    const SizedBox(height: 16),
-
-                    // Detailed statistics
-                    _buildDetailedStatsCard(workoutProvider, fitTestProvider),
-
-                    if (workoutProvider.programStartDate != null)
-                      _buildStartDateDisplay(context, workoutProvider),
-                  ],
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildStartDateDisplay(
-    BuildContext context,
-    WorkoutProvider provider,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Text('Program Started:', style: TextStyle(fontSize: 14)),
-          const SizedBox(width: 8),
-          Text(
-            utils.formatDateForDisplay(provider.programStartDate),
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.red,
-            ),
-          ),
-          IconButton(
-            icon: Icon(Icons.edit, size: 20, color: Colors.grey[600]),
-            tooltip: 'Change Start Date',
-            onPressed: () =>
-                startDateProvider.pickProgramStartDate(context, provider),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Overall statistics card
-  Widget _buildOverallStatsCard(WorkoutProvider workoutProvider) {
-    final completedWorkouts = workoutProvider.sessions
-        .where((s) => s.completed)
-        .length;
-    // Get total workout days in one cycle for display, ensure it matches provider logic
-    final totalWorkoutsInCycle = workoutProvider.workouts
-        .where((w) => w.workoutType == 'workout' || w.workoutType == 'fit_test')
-        .length;
-
-    // Updated: Get the progress map
-    final Map<String, double> progressData = workoutProvider
-        .getOverallProgress();
-    final double currentCycleProgress =
-        progressData['currentCycleProgress'] ?? 0.0;
-    final int completedCycles = (progressData['completedCycles'] ?? 0.0)
-        .toInt();
-
-    final thisWeekSessions = workoutProvider.getThisWeekSessions();
-    final completedThisWeek = thisWeekSessions.where((s) => s.completed).length;
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Overall Progress',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            if (completedCycles > 0)
-              Text(
-                'Completed Cycles: $completedCycles',
-                style: const TextStyle(fontSize: 14, color: Colors.blueGrey),
-              ),
-            const SizedBox(height: 16),
-
-            // Progress bar for the current cycle
-            LinearProgressIndicator(
-              // Updated: Use currentCycleProgress
-              value: totalWorkoutsInCycle > 0
-                  ? (currentCycleProgress / 100)
-                  : 0.0,
-              backgroundColor: Colors.grey.shade300,
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
-              minHeight: 8,
-            ),
-
-            const SizedBox(height: 8),
-
-            Text(
-              // Updated: Display current cycle progress
-              'Current Cycle: ${currentCycleProgress.toStringAsFixed(1)}% Complete',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Stats grid
-            Row(
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: _buildStatItem(
-                    'Completed', // This might represent total completed across all cycles
-                    '$completedWorkouts',
-                    'workouts',
-                    Icons.check_circle,
-                    Colors.green,
-                  ),
+                _OverallStatsCard(
+                  workoutProvider: workoutProvider,
+                  progressData: _cachedProgressData!,
                 ),
-                Expanded(
-                  child: _buildStatItem(
-                    'This Week', // Completed in the current calendar week
-                    '$completedThisWeek',
-                    'workouts',
-                    Icons.calendar_month,
-                    Colors.blue,
-                  ),
+                const SizedBox(height: 16),
+                _FitTestProgressChart(fitTests: _cachedFitTests!),
+                const SizedBox(height: 16),
+                _WorkoutCompletionChart(cycleStats: _cachedCycleStats!),
+                const SizedBox(height: 16),
+                _ImprovementCard(improvements: _cachedImprovements!),
+                const SizedBox(height: 16),
+                _DetailedStatsCard(
+                  fitTests: _cachedFitTests!,
+                  fitTestProvider: fitTestProvider,
+                  currentStreak: _cachedStreak!,
                 ),
-                Expanded(
-                  child: _buildStatItem(
-                    // Updated: This should be total workouts in *one* cycle
-                    'Per Cycle',
-                    '$totalWorkoutsInCycle',
-                    'workouts',
-                    Icons.fitness_center,
-                    Colors.orange,
-                  ),
-                ),
+                if (workoutProvider.programStartDate != null)
+                  _StartDateDisplay(workoutProvider: workoutProvider),
               ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
 
-  /// Fit test progress chart
-  Widget _buildFitTestProgressChart(FitTestProvider fitTestProvider) {
-    final fitTests = fitTestProvider.getAllResults();
-
-    if (fitTests.length < 2) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              const Text(
-                'Fit Test Progress',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              const Icon(Icons.show_chart, size: 64, color: Colors.grey),
-              const SizedBox(height: 8),
-              Text(
-                fitTests.isEmpty
-                    ? 'Complete your first fit test to see progress'
-                    : 'Complete another fit test to see progress chart',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.grey),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    // Determine a reasonable interval for X-axis labels
-    // This is a simple strategy, you might want to make it more sophisticated
-    // e.g., based on screen width or a maximum number of labels.
-    double labelInterval = 1.0;
-    const maxLabelsToShow = 5; // Adjust as needed for your UI
-    if (fitTests.length > maxLabelsToShow) {
-      labelInterval = (fitTests.length / maxLabelsToShow).ceilToDouble();
-    }
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Fit Test Progress',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 200,
-              child: LineChart(
-                LineChartData(
-                  gridData: const FlGridData(show: true),
-                  titlesData: FlTitlesData(
-                    leftTitles: const AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 40,
-                      ),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        // Set an interval for when titles should appear
-                        interval: labelInterval,
-                        getTitlesWidget: (value, meta) {
-                          final index = value.toInt();
-                          // Only show label if the current value is an actual data point index
-                          // and it aligns with our desired label interval.
-                          if (index >= 0 &&
-                              index < fitTests.length &&
-                              (index % labelInterval.toInt() == 0 ||
-                                  labelInterval == 1.0)) {
-                            // Using fitTest.testNumber for the label, which is 1-based
-                            // Assumes fitTests are sorted and testNumber is reliable from the provider
-                            return Padding(
-                              padding: const EdgeInsets.only(
-                                top: 8.0,
-                              ), // Adjust padding as needed
-                              child: Text('Test ${fitTests[index].testNumber}'),
-                            );
-                          }
-                          return const Text('');
-                        },
-                        reservedSize: 30, // Adjust if labels get cut off
-                      ),
-                    ),
-                    topTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    rightTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                  ),
-                  borderData: FlBorderData(show: true),
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: fitTests.asMap().entries.map((entry) {
-                        // entry.key is the 0-based index, which is what the chart uses for spot X values
-                        return FlSpot(
-                          entry.key.toDouble(),
-                          entry.value.totalReps.toDouble(),
-                        );
-                      }).toList(),
-                      isCurved: true,
-                      color: Colors.red,
-                      barWidth: 3,
-                      dotData: const FlDotData(show: true),
-                      belowBarData: BarAreaData(
-                        show: true,
-                        color: Colors.red.withValues(
-                          alpha: 0.1,
-                        ), // Corrected withOpacity
-                      ),
-                    ),
-                  ],
-                  // Optional: Define minX and maxX if you want to ensure all points are visible
-                  // especially if labelInterval makes the last point not have a direct tick.
-                  minX: 0,
-                  maxX: (fitTests.length - 1).toDouble(),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Align(
-              // Center the subtitle
-              alignment: Alignment.center,
-              child: Text(
-                'Total Reps per Fit Test',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Workout completion chart
-  Widget _buildWorkoutCompletionChart(WorkoutProvider workoutProvider) {
-    // Get stats for the current cycle
-    final Map<String, int> cycleStats = workoutProvider
-        .getCurrentCycleSessionStats();
-    final int completedInCycle = cycleStats['completed'] ?? 0;
-    final int skippedInCycle = cycleStats['skipped'] ?? 0;
-    // 'remaining' from provider is based on 'workout' type days up to today vs total 'workout' days
-    final int remainingInCycle = cycleStats['remaining'] ?? 0;
-    final int totalWorkoutsInCycle = cycleStats['totalInCycle'] ?? 0;
-
-    if (totalWorkoutsInCycle == 0) {
-      // Should not happen if workouts are populated
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              const Text(
-                'Current Cycle Workout Status',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              const Text('No workout data available for the cycle.'),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // Ensure total for chart sections sums up correctly
-    // The 'remaining' is for *workout* type days.
-    // Pie chart will show completed, skipped (for workout type), and remaining (for workout type).
-    double chartCompleted = completedInCycle.toDouble();
-    double chartSkipped = skippedInCycle.toDouble();
-    double chartRemaining = remainingInCycle.toDouble();
-
-    // If sum is zero, don't show chart, or show an empty state.
-    if (chartCompleted == 0 &&
-        chartSkipped == 0 &&
-        chartRemaining == 0 &&
-        totalWorkoutsInCycle > 0) {
-      // This means the cycle has started, but no workout-type days have been completed, skipped,
-      // and all workout-type days are technically "remaining".
-      // We can choose to show all as remaining.
-      chartRemaining = totalWorkoutsInCycle.toDouble();
-    } else if (chartCompleted == 0 &&
-        chartSkipped == 0 &&
-        chartRemaining == 0 &&
-        totalWorkoutsInCycle == 0) {
-      return const SizedBox.shrink(); // No data at all
-    }
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Current Cycle Workout Status',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "$totalWorkoutsInCycle 'Workout' Days This Cycle", // Clarify it's about 'workout' days
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 200,
-              child: PieChart(
-                PieChartData(
-                  sections: [
-                    if (chartCompleted > 0)
-                      PieChartSectionData(
-                        value: chartCompleted,
-                        title: 'Completed\n$completedInCycle',
-                        color: Colors.green,
-                        radius: 60,
-                        titleStyle: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    if (chartSkipped > 0)
-                      PieChartSectionData(
-                        value: chartSkipped,
-                        title: 'Skipped\n$skippedInCycle',
-                        color: Colors.orange,
-                        radius: 60,
-                        titleStyle: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    if (chartRemaining > 0)
-                      PieChartSectionData(
-                        value: chartRemaining,
-                        title: 'Remaining\n$remainingInCycle',
-                        color: Colors.blueGrey, // Color for remaining
-                        radius: 60,
-                        titleStyle: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                  ],
-                  sectionsSpace: 2,
-                  centerSpaceRadius: 40,
-                  // Optionally, handle tap events, etc.
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Improvement percentages card
-  Widget _buildImprovementCard(FitTestProvider fitTestProvider) {
-    final improvements = fitTestProvider.getImprovementPercentages();
-
-    if (improvements.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              const Text(
-                'Exercise Improvements',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              const Icon(Icons.trending_up, size: 64, color: Colors.grey),
-              const SizedBox(height: 8),
-              const Text(
-                'Complete multiple fit tests to see improvements',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // Sort improvements by percentage for better display
-    final sortedImprovements = improvements.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Exercise Improvements',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            ...sortedImprovements.map((entry) {
-              return _buildImprovementItem(
-                _getExerciseDisplayName(entry.key),
-                entry.value,
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Individual improvement item
-  Widget _buildImprovementItem(String exerciseName, double improvement) {
-    final isPositive = improvement > 0;
-    final color = isPositive
-        ? Colors.green
-        : (improvement < 0 ? Colors.red : Colors.grey);
-    final icon = isPositive
-        ? Icons.trending_up
-        : (improvement < 0 ? Icons.trending_down : Icons.trending_flat);
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 16),
-          const SizedBox(width: 8),
-          Expanded(child: Text(exerciseName)),
-          Text(
-            '${improvement > 0 ? '+' : ''}${improvement.toStringAsFixed(1)}%',
-            style: TextStyle(fontWeight: FontWeight.bold, color: color),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Detailed statistics card
-  Widget _buildDetailedStatsCard(
+  void _updateCachedData(
     WorkoutProvider workoutProvider,
     FitTestProvider fitTestProvider,
   ) {
-    final fitTests = fitTestProvider.getAllResults();
-    final latestFitTest = fitTestProvider.getLatestFitTest();
-    final sessions = workoutProvider.sessions;
+    _cachedProgressData = {
+      ...workoutProvider.getOverallProgress(),
+      'completedWorkouts': workoutProvider.sessions
+          .where((s) => s.completed)
+          .length,
+      'totalWorkoutsInCycle': workoutProvider.workouts
+          .where(
+            (w) => w.workoutType == 'workout' || w.workoutType == 'fit_test',
+          )
+          .length,
+      'thisWeekCompleted': workoutProvider
+          .getThisWeekSessions()
+          .where((s) => s.completed)
+          .length,
+    };
 
-    // Calculate streak
-    int currentStreak = _calculateCurrentStreak(sessions);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Detailed Statistics',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-
-            _buildDetailedStatRow('Total Fit Tests', '${fitTests.length}'),
-            _buildDetailedStatRow('Current Streak', '$currentStreak days'),
-
-            if (latestFitTest != null) ...[
-              _buildDetailedStatRow(
-                'Latest Total Reps',
-                '${latestFitTest.totalReps}',
-              ),
-              _buildDetailedStatRow(
-                'Last Fit Test',
-                _formatDate(latestFitTest.testDate),
-              ),
-            ],
-
-            if (fitTests.length >= 2) ...[
-              const SizedBox(height: 8),
-              const Divider(),
-              const SizedBox(height: 8),
-              const Text(
-                'Best Improvements',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              ..._getBestImprovements(fitTestProvider).map((improvement) {
-                return _buildDetailedStatRow(
-                  improvement['exercise'] ?? 'Unknown',
-                  improvement['improvement'] ?? '0%',
-                );
-              }),
-            ],
-          ],
-        ),
-      ),
-    );
+    _cachedFitTests = fitTestProvider.getAllResults();
+    _cachedImprovements = fitTestProvider.getImprovementPercentages();
+    _cachedCycleStats = workoutProvider.getCurrentCycleSessionStats();
+    _cachedStreak = _calculateCurrentStreak(workoutProvider.sessions);
   }
 
-  /// Individual detailed stat row
-  Widget _buildDetailedStatRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
-  }
-
-  /// Individual stat item widget
-  Widget _buildStatItem(
-    String label,
-    String value,
-    String unit,
-    IconData icon,
-    Color color,
-  ) {
-    return Column(
-      children: [
-        Icon(icon, color: color, size: 24),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
-
-  /// Calculate current workout streak
   int _calculateCurrentStreak(List<dynamic> sessions) {
     if (sessions.isEmpty) return 0;
 
-    // Sort sessions by date (most recent first)
-    final sortedSessions = sessions.toList()
-      ..sort(
-        (a, b) => DateTime.parse(b.date).compareTo(DateTime.parse(a.date)),
-      );
+    final sortedSessions = List.from(
+      sessions,
+    )..sort((a, b) => DateTime.parse(b.date).compareTo(DateTime.parse(a.date)));
 
     int streak = 0;
     DateTime? lastDate;
@@ -675,8 +123,564 @@ class ProgressScreen extends StatelessWidget {
 
     return streak;
   }
+}
 
-  /// Get best improvements for display
+// Separate widget classes to prevent unnecessary rebuilds
+
+class _OverallStatsCard extends StatelessWidget {
+  final WorkoutProvider workoutProvider;
+  final Map<String, dynamic> progressData;
+
+  const _OverallStatsCard({
+    required this.workoutProvider,
+    required this.progressData,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final completedWorkouts = progressData['completedWorkouts'] as int;
+    final totalWorkoutsInCycle = progressData['totalWorkoutsInCycle'] as int;
+    final currentCycleProgress =
+        (progressData['currentCycleProgress'] as double?) ?? 0.0;
+    final completedCycles =
+        ((progressData['completedCycles'] as double?) ?? 0.0).toInt();
+    final completedThisWeek = progressData['thisWeekCompleted'] as int;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Overall Progress',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            if (completedCycles > 0)
+              Text(
+                'Completed Cycles: $completedCycles',
+                style: const TextStyle(fontSize: 14, color: Colors.blueGrey),
+              ),
+            const SizedBox(height: 16),
+            LinearProgressIndicator(
+              value: totalWorkoutsInCycle > 0
+                  ? (currentCycleProgress / 100)
+                  : 0.0,
+              backgroundColor: Colors.grey.shade300,
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
+              minHeight: 8,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Current Cycle: ${currentCycleProgress.toStringAsFixed(1)}% Complete',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _StatItem(
+                    label: 'Completed',
+                    value: '$completedWorkouts',
+                    unit: 'workouts',
+                    icon: Icons.check_circle,
+                    color: Colors.green,
+                  ),
+                ),
+                Expanded(
+                  child: _StatItem(
+                    label: 'This Week',
+                    value: '$completedThisWeek',
+                    unit: 'workouts',
+                    icon: Icons.calendar_month,
+                    color: Colors.blue,
+                  ),
+                ),
+                Expanded(
+                  child: _StatItem(
+                    label: 'Per Cycle',
+                    value: '$totalWorkoutsInCycle',
+                    unit: 'workouts',
+                    icon: Icons.fitness_center,
+                    color: Colors.orange,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatItem extends StatelessWidget {
+  final String label;
+  final String value;
+  final String unit;
+  final IconData icon;
+  final Color color;
+
+  const _StatItem({
+    required this.label,
+    required this.value,
+    required this.unit,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 24),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+}
+
+class _FitTestProgressChart extends StatefulWidget {
+  final List<dynamic> fitTests;
+
+  const _FitTestProgressChart({required this.fitTests});
+
+  @override
+  State<_FitTestProgressChart> createState() => _FitTestProgressChartState();
+}
+
+class _FitTestProgressChartState extends State<_FitTestProgressChart> {
+  LineChartData? _cachedChartData;
+  List<dynamic>? _lastFitTests;
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.fitTests.length < 2) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              const Text(
+                'Fit Test Progress',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              const Icon(Icons.show_chart, size: 64, color: Colors.grey),
+              const SizedBox(height: 8),
+              Text(
+                widget.fitTests.isEmpty
+                    ? 'Complete your first fit test to see progress'
+                    : 'Complete another fit test to see progress chart',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Cache chart data to avoid recalculation
+    if (_cachedChartData == null || _lastFitTests != widget.fitTests) {
+      _cachedChartData = _buildChartData();
+      _lastFitTests = widget.fitTests;
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Fit Test Progress',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(height: 200, child: LineChart(_cachedChartData!)),
+            const SizedBox(height: 8),
+            const Align(
+              alignment: Alignment.center,
+              child: Text(
+                'Total Reps per Fit Test',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  LineChartData _buildChartData() {
+    double labelInterval = 1.0;
+    const maxLabelsToShow = 5;
+    if (widget.fitTests.length > maxLabelsToShow) {
+      labelInterval = (widget.fitTests.length / maxLabelsToShow).ceilToDouble();
+    }
+
+    return LineChartData(
+      gridData: const FlGridData(show: true),
+      titlesData: FlTitlesData(
+        leftTitles: const AxisTitles(
+          sideTitles: SideTitles(showTitles: true, reservedSize: 40),
+        ),
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            interval: labelInterval,
+            getTitlesWidget: (value, meta) {
+              final index = value.toInt();
+              if (index >= 0 &&
+                  index < widget.fitTests.length &&
+                  (index % labelInterval.toInt() == 0 ||
+                      labelInterval == 1.0)) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text('Test ${widget.fitTests[index].testNumber}'),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+            reservedSize: 30,
+          ),
+        ),
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        rightTitles: const AxisTitles(
+          sideTitles: SideTitles(showTitles: false),
+        ),
+      ),
+      borderData: FlBorderData(show: true),
+      lineBarsData: [
+        LineChartBarData(
+          spots: widget.fitTests.asMap().entries.map((entry) {
+            return FlSpot(
+              entry.key.toDouble(),
+              entry.value.totalReps.toDouble(),
+            );
+          }).toList(),
+          isCurved: true,
+          color: Colors.red,
+          barWidth: 3,
+          dotData: const FlDotData(show: true),
+          belowBarData: BarAreaData(
+            show: true,
+            color: Colors.red.withValues(alpha: 0.1),
+          ),
+        ),
+      ],
+      minX: 0,
+      maxX: (widget.fitTests.length - 1).toDouble(),
+    );
+  }
+}
+
+class _WorkoutCompletionChart extends StatelessWidget {
+  final Map<String, int> cycleStats;
+
+  const _WorkoutCompletionChart({required this.cycleStats});
+
+  @override
+  Widget build(BuildContext context) {
+    final completedInCycle = cycleStats['completed'] ?? 0;
+    final skippedInCycle = cycleStats['skipped'] ?? 0;
+    final remainingInCycle = cycleStats['remaining'] ?? 0;
+    final totalWorkoutsInCycle = cycleStats['totalInCycle'] ?? 0;
+
+    if (totalWorkoutsInCycle == 0) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              const Text(
+                'Current Cycle Workout Status',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              const Text('No workout data available for the cycle.'),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final chartSections = <PieChartSectionData>[];
+
+    if (completedInCycle > 0) {
+      chartSections.add(
+        PieChartSectionData(
+          value: completedInCycle.toDouble(),
+          title: 'Completed\n$completedInCycle',
+          color: Colors.green,
+          radius: 60,
+          titleStyle: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      );
+    }
+
+    if (skippedInCycle > 0) {
+      chartSections.add(
+        PieChartSectionData(
+          value: skippedInCycle.toDouble(),
+          title: 'Skipped\n$skippedInCycle',
+          color: Colors.orange,
+          radius: 60,
+          titleStyle: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      );
+    }
+
+    if (remainingInCycle > 0) {
+      chartSections.add(
+        PieChartSectionData(
+          value: remainingInCycle.toDouble(),
+          title: 'Remaining\n$remainingInCycle',
+          color: Colors.blueGrey,
+          radius: 60,
+          titleStyle: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      );
+    }
+
+    // Handle empty state
+    if (chartSections.isEmpty && totalWorkoutsInCycle > 0) {
+      chartSections.add(
+        PieChartSectionData(
+          value: totalWorkoutsInCycle.toDouble(),
+          title: 'Remaining\n$totalWorkoutsInCycle',
+          color: Colors.blueGrey,
+          radius: 60,
+          titleStyle: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Current Cycle Workout Status',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "$totalWorkoutsInCycle 'Workout' Days This Cycle",
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 200,
+              child: PieChart(
+                PieChartData(
+                  sections: chartSections,
+                  sectionsSpace: 2,
+                  centerSpaceRadius: 40,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ImprovementCard extends StatelessWidget {
+  final Map<String, double> improvements;
+
+  const _ImprovementCard({required this.improvements});
+
+  @override
+  Widget build(BuildContext context) {
+    if (improvements.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              const Text(
+                'Exercise Improvements',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              const Icon(Icons.trending_up, size: 64, color: Colors.grey),
+              const SizedBox(height: 8),
+              const Text(
+                'Complete multiple fit tests to see improvements',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final sortedImprovements = improvements.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Exercise Improvements',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            ...sortedImprovements.map((entry) {
+              return _ImprovementItem(
+                exerciseName: _ExerciseNames.getDisplayName(entry.key),
+                improvement: entry.value,
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ImprovementItem extends StatelessWidget {
+  final String exerciseName;
+  final double improvement;
+
+  const _ImprovementItem({
+    required this.exerciseName,
+    required this.improvement,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isPositive = improvement > 0;
+    final color = isPositive
+        ? Colors.green
+        : (improvement < 0 ? Colors.red : Colors.grey);
+    final icon = isPositive
+        ? Icons.trending_up
+        : (improvement < 0 ? Icons.trending_down : Icons.trending_flat);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 8),
+          Expanded(child: Text(exerciseName)),
+          Text(
+            '${improvement > 0 ? '+' : ''}${improvement.toStringAsFixed(1)}%',
+            style: TextStyle(fontWeight: FontWeight.bold, color: color),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailedStatsCard extends StatelessWidget {
+  final List<dynamic> fitTests;
+  final FitTestProvider fitTestProvider;
+  final int currentStreak;
+
+  const _DetailedStatsCard({
+    required this.fitTests,
+    required this.fitTestProvider,
+    required this.currentStreak,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final latestFitTest = fitTestProvider.getLatestFitTest();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Detailed Statistics',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            _DetailedStatRow(
+              label: 'Total Fit Tests',
+              value: '${fitTests.length}',
+            ),
+            _DetailedStatRow(
+              label: 'Current Streak',
+              value: '$currentStreak days',
+            ),
+            if (latestFitTest != null) ...[
+              _DetailedStatRow(
+                label: 'Latest Total Reps',
+                value: '${latestFitTest.totalReps}',
+              ),
+              _DetailedStatRow(
+                label: 'Last Fit Test',
+                value: _DateFormatter.format(latestFitTest.testDate),
+              ),
+            ],
+            if (fitTests.length >= 2) ...[
+              const SizedBox(height: 8),
+              const Divider(),
+              const SizedBox(height: 8),
+              const Text(
+                'Best Improvements',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              ..._getBestImprovements(fitTestProvider).map((improvement) {
+                return _DetailedStatRow(
+                  label: improvement['exercise'] ?? 'Unknown',
+                  value: improvement['improvement'] ?? '0%',
+                );
+              }),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   List<Map<String, String>> _getBestImprovements(
     FitTestProvider fitTestProvider,
   ) {
@@ -689,54 +693,110 @@ class ProgressScreen extends StatelessWidget {
 
     return sortedImprovements.take(3).map((entry) {
       return {
-        'exercise': _getExerciseDisplayName(entry.key),
+        'exercise': _ExerciseNames.getDisplayName(entry.key),
         'improvement':
             '${entry.value > 0 ? '+' : ''}${entry.value.toStringAsFixed(1)}%',
       };
     }).toList();
   }
+}
 
-  /// Convert exercise key to display name
-  String _getExerciseDisplayName(String key) {
-    switch (key) {
-      case 'switchKicks':
-        return 'Switch Kicks';
-      case 'powerJacks':
-        return 'Power Jacks';
-      case 'powerKnees':
-        return 'Power Knees';
-      case 'powerJumps':
-        return 'Power Jumps';
-      case 'globeJumps':
-        return 'Globe Jumps';
-      case 'suicideJumps':
-        return 'Suicide Jumps';
-      case 'pushupJacks':
-        return 'Pushup Jacks';
-      case 'lowPlankOblique':
-        return 'Low Plank Oblique';
-      default:
-        return key;
-    }
+class _DetailedStatRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DetailedStatRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
   }
+}
 
-  /// Format date string for display
-  String _formatDate(String dateString) {
+class _StartDateDisplay extends StatelessWidget {
+  final WorkoutProvider workoutProvider;
+
+  const _StartDateDisplay({required this.workoutProvider});
+
+  @override
+  Widget build(BuildContext context) {
+    final utils = UtilsProvider();
+    final startDateProvider = StartDateProvider();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text('Program Started:', style: TextStyle(fontSize: 14)),
+          const SizedBox(width: 8),
+          Text(
+            utils.formatDateForDisplay(workoutProvider.programStartDate),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.red,
+            ),
+          ),
+          IconButton(
+            icon: Icon(Icons.edit, size: 20, color: Colors.grey[600]),
+            tooltip: 'Change Start Date',
+            onPressed: () => startDateProvider.pickProgramStartDate(
+              context,
+              workoutProvider,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Utility classes for better organization
+class _ExerciseNames {
+  static const Map<String, String> _displayNames = {
+    'switchKicks': 'Switch Kicks',
+    'powerJacks': 'Power Jacks',
+    'powerKnees': 'Power Knees',
+    'powerJumps': 'Power Jumps',
+    'globeJumps': 'Globe Jumps',
+    'suicideJumps': 'Suicide Jumps',
+    'pushupJacks': 'Pushup Jacks',
+    'lowPlankOblique': 'Low Plank Oblique',
+  };
+
+  static String getDisplayName(String key) {
+    return _displayNames[key] ?? key;
+  }
+}
+
+class _DateFormatter {
+  static const List<String> _months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  static String format(String dateString) {
     final date = DateTime.parse(dateString);
-    final months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return '${date.day} ${months[date.month - 1]} ${date.year}';
+    return '${date.day} ${_months[date.month - 1]} ${date.year}';
   }
 }
