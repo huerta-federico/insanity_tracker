@@ -28,10 +28,6 @@ Insanity Tracker is a Flutter-based mobile application designed to help users tr
 <img src="screenshots/progress_screen.png" alt="drawing" width="200"/>
 </div>
 
-![Home Screen](screenshots/home_screen.png =200x)
-![Fit Test Screen](screenshots/fit_test_screen.png)
-![Progress Screen](screenshots/progress_screen.png)
-
 ## Getting Started
 
 This project is a Flutter application. To get a local copy up and running, follow these steps:
