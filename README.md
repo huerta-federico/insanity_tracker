@@ -1,8 +1,13 @@
 # Insanity Tracker
 
-**Your dedicated companion for conquering the Insanity Workout program!**
+**Companion app for the Insanity Workout program!**
 
-Insanity Tracker is a Flutter-based mobile application designed to help users track their progress throughout the challenging 60-day Insanity fitness program. It provides a clear schedule, allows users to log completed workouts, monitor their Fit Test results, and visualize their overall progress. This app runs completely offline, ensuring your workout data stays private on your device.
+Insanity Tracker is a Flutter-based mobile application designed to help **me** track my fitness journey progress throughout the 60-day Insanity fitness program.
+That is to say, I build the app for my personal and no one else's. I'm publishing in case someone out there is looking for something similar.
+It provides a clear schedule, allows users to log completed workouts, monitor their Fit Test results, and visualize their overall progress.
+This app runs completely offline, ensuring your workout data stays private on your device.
+
+**Please note:** This application is a personal project and is not affiliated with, endorsed by, or in any way officially connected with the Insanity® Workout program or Beachbody, LLC.
 
 ## Features
 
@@ -54,7 +59,3 @@ This project is a Flutter application. To get a local copy up and running, follo
 *   **Charts:** fl_chart
 *   **Shared Preferences:** For storing theme preferences and program start date.
 *   **Linting:** flutter_lints
-
-## Project Structure
-
-The project follows a standard Flutter application structure:
