@@ -32,8 +32,8 @@ class WorkoutProvider extends ChangeNotifier {
   bool _cacheInvalidated = false;
 
   // Constants
-  static const int programCycleLengthDays = 63;
-  static const int programCycleLengthWeeks = 9;
+  static const int programCycleLengthDays = 70;
+  static const int programCycleLengthWeeks = 10;
   static const String _programStartDateKey = 'programStartDate';
   static const int _cacheValidityMinutes = 5;
 

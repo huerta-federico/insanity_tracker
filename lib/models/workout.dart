@@ -4,6 +4,8 @@ class Workout {
   final int dayNumber;
   final int weekNumber;
   final String workoutType; // 'workout', 'fit_test', 'rest'
+  final int durationMinutes;
+
 
   Workout({
     required this.id,
@@ -11,6 +13,7 @@ class Workout {
     required this.dayNumber,
     required this.weekNumber,
     required this.workoutType,
+    required this.durationMinutes,
   });
 
   // Convert from database map
@@ -21,6 +24,7 @@ class Workout {
       dayNumber: map['day_number'],
       weekNumber: map['week_number'],
       workoutType: map['workout_type'],
+      durationMinutes: map['duration_minutes'],
     );
   }
 
@@ -32,6 +36,7 @@ class Workout {
       'day_number': dayNumber,
       'week_number': weekNumber,
       'workout_type': workoutType,
+      'duration_minutes': durationMinutes,
     };
   }
 }

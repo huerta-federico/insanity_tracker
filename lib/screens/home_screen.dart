@@ -20,10 +20,10 @@ class _TodaysWorkoutData {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is _TodaysWorkoutData &&
-          workout == other.workout &&
-          session == other.session &&
-          isLoading == other.isLoading;
+          other is _TodaysWorkoutData &&
+              workout == other.workout &&
+              session == other.session &&
+              isLoading == other.isLoading;
 
   @override
   int get hashCode => Object.hash(workout, session, isLoading);
@@ -45,11 +45,11 @@ class _QuickStatsData {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is _QuickStatsData &&
-          completedThisWeek == other.completedThisWeek &&
-          scheduledThisWeek == other.scheduledThisWeek &&
-          currentCycleProgress == other.currentCycleProgress &&
-          isLoading == other.isLoading;
+          other is _QuickStatsData &&
+              completedThisWeek == other.completedThisWeek &&
+              scheduledThisWeek == other.scheduledThisWeek &&
+              currentCycleProgress == other.currentCycleProgress &&
+              isLoading == other.isLoading;
 
   @override
   int get hashCode => Object.hash(
@@ -91,7 +91,7 @@ class _HomeScreenBody extends StatelessWidget {
   Widget build(BuildContext context) {
     return Selector<WorkoutProvider, bool>(
       selector: (_, provider) =>
-          provider.isLoading &&
+      provider.isLoading &&
           provider.getTodaysWorkout() == null &&
           provider.sessions.isEmpty,
       builder: (context, isInitialLoading, _) {
@@ -134,8 +134,6 @@ class _WelcomeCard extends StatefulWidget {
 }
 
 class _WelcomeCardState extends State<_WelcomeCard> {
-  //late String _dateString;
-  //late String _todayName;
   late int _lastUpdatedDay;
 
   @override
@@ -146,14 +144,11 @@ class _WelcomeCardState extends State<_WelcomeCard> {
 
   void _updateDateInfo() {
     final now = DateTime.now();
-    //_todayName = _dayNames[now.weekday - 1];
-    //_dateString = '${now.day}/${now.month}/${now.year}';
     _lastUpdatedDay = now.day;
   }
 
   @override
   Widget build(BuildContext context) {
-    // Check if we need to update the date (crossed midnight)
     final currentDay = DateTime.now().day;
     if (currentDay != _lastUpdatedDay) {
       _updateDateInfo();
@@ -259,20 +254,8 @@ class _TodaysWorkoutCard extends StatelessWidget {
     fontWeight: FontWeight.w600,
   );
   static const _detailsStyle = TextStyle(fontSize: 14, color: Colors.grey);
-  //static const _chipTextStyle = TextStyle(fontSize: 12);
   static const _noWorkoutStyle = TextStyle(fontSize: 16, color: Colors.grey);
-  /*
-  static const _completedStyle = TextStyle(
-    fontSize: 16,
-    color: Colors.green,
-    fontWeight: FontWeight.bold,
-  );
-  static const _skippedStyle = TextStyle(
-    fontSize: 16,
-    color: Colors.orange,
-    fontWeight: FontWeight.bold,
-  );
-  */
+
   Color _getWorkoutTypeColor(String workoutType) {
     switch (workoutType) {
       case 'fit_test':
@@ -282,6 +265,15 @@ class _TodaysWorkoutCard extends StatelessWidget {
       default:
         return Colors.red.shade100;
     }
+  }
+
+  String _formatDuration(int minutes) {
+    if (minutes == 0) return 'No workout';
+    if (minutes < 60) return '$minutes min';
+    final hours = minutes ~/ 60;
+    final remainingMinutes = minutes % 60;
+    if (remainingMinutes == 0) return '${hours}h';
+    return '${hours}h ${remainingMinutes}min';
   }
 
   @override
@@ -297,9 +289,26 @@ class _TodaysWorkoutCard extends StatelessWidget {
             if (todaysWorkout != null) ...[
               Text(todaysWorkout!.name, style: _workoutNameStyle),
               const SizedBox(height: 4),
-              Text(
-                'Week ${todaysWorkout!.weekNumber} • Day ${todaysWorkout!.dayNumber}',
-                style: _detailsStyle,
+              Row(
+                children: [
+                  Text(
+                    'Week ${todaysWorkout!.weekNumber} • Day ${todaysWorkout!.dayNumber}',
+                    style: _detailsStyle,
+                  ),
+                  if (todaysWorkout!.durationMinutes > 0) ...[
+                    const Text(' • ', style: _detailsStyle),
+                    Icon(
+                      Icons.timer_outlined,
+                      size: 14,
+                      color: Colors.grey.shade600,
+                    ),
+                    const SizedBox(width: 2),
+                    Text(
+                      _formatDuration(todaysWorkout!.durationMinutes),
+                      style: _detailsStyle,
+                    ),
+                  ],
+                ],
               ),
               const SizedBox(height: 8),
               _WorkoutTypeChip(
@@ -415,9 +424,6 @@ class _WorkoutActionButtons extends StatelessWidget {
   const _WorkoutActionButtons({required this.workout});
 
   Future<void> _completeWorkout(BuildContext context) async {
-    // Check if the workout is a rest day before showing the dialog
-    // Although the button itself will be hidden, this is a good secondary check
-    // if this function were ever called from somewhere else.
     if (workout.workoutType == 'rest') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -449,10 +455,7 @@ class _WorkoutActionButtons extends StatelessWidget {
 
     if (result == true && context.mounted) {
       final provider = Provider.of<WorkoutProvider>(context, listen: false);
-      await provider.completeWorkout(
-        workout.id,
-        notes: 'Completed from home screen',
-      );
+      await provider.completeWorkout(workout.id);
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -466,7 +469,6 @@ class _WorkoutActionButtons extends StatelessWidget {
   }
 
   Future<void> _skipWorkout(BuildContext context) async {
-    // Check if the workout is a rest day
     if (workout.workoutType == 'rest') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -547,7 +549,7 @@ class _WorkoutActionButtons extends StatelessWidget {
           'Enjoy your rest day!',
           style: TextStyle(
             fontSize: 16,
-            color: Colors.blue.shade700, // Or Theme.of(context).primaryColor
+            color: Colors.blue.shade700,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -585,8 +587,6 @@ class _QuickStatsSection extends StatelessWidget {
       selector: (_, provider) {
         final thisWeekSessions = provider.getThisWeekSessions();
         final progressData = provider.getOverallProgress();
-        //debugPrint("This Week Sessions: $thisWeekSessions");
-        //debugPrint("Progress Data $progressData");
 
         return _QuickStatsData(
           completedThisWeek: thisWeekSessions.where((s) => s.completed).length,

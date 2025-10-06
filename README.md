@@ -47,7 +47,7 @@ This project is a Flutter application. To get a local copy up and running, follo
 
 1.  **Clone the repository:**
 2.  **Install dependencies:**
-3.  **Build the APK and copy it to your phone.**
+3.  **Build the APK and copy it to your phone.** ~/Android/Sdk/emulator/emulator -avd Pixel_9 -no-snapshot &
 4.  **Enable installing apps from unknown sources and install the app**
 
 ## Technology Stack
