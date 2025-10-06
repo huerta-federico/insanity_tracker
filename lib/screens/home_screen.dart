@@ -6,6 +6,8 @@ import '../providers/utils_provider.dart';
 import '../providers/workout_provider.dart';
 import '../models/workout.dart';
 
+/// Data class to hold today's workout information
+/// Using a separate class allows Selector to efficiently track changes
 class _TodaysWorkoutData {
   final Workout? workout;
   final WorkoutSession? session;
@@ -17,6 +19,7 @@ class _TodaysWorkoutData {
     required this.isLoading,
   });
 
+  /// Override equality operator to enable proper change detection in Selector
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -25,10 +28,13 @@ class _TodaysWorkoutData {
               session == other.session &&
               isLoading == other.isLoading;
 
+  /// Override hashCode when overriding equality operator (Dart requirement)
   @override
   int get hashCode => Object.hash(workout, session, isLoading);
 }
 
+/// Data class to hold quick statistics for the week
+/// Separating this data allows the stats section to rebuild independently
 class _QuickStatsData {
   final int completedThisWeek;
   final int scheduledThisWeek;
@@ -60,6 +66,8 @@ class _QuickStatsData {
   );
 }
 
+/// Main home screen widget
+/// This is a StatelessWidget because it doesn't manage its own state
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
@@ -84,17 +92,22 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
+/// Body content of the home screen
+/// Separated into its own widget for better organization
 class _HomeScreenBody extends StatelessWidget {
   const _HomeScreenBody();
 
   @override
   Widget build(BuildContext context) {
+    // Selector listens to WorkoutProvider but only rebuilds when the selected value changes
+    // This is more efficient than Consumer which rebuilds on any provider change
     return Selector<WorkoutProvider, bool>(
       selector: (_, provider) =>
       provider.isLoading &&
           provider.getTodaysWorkout() == null &&
           provider.sessions.isEmpty,
       builder: (context, isInitialLoading, _) {
+        // Show loading indicator only during initial app startup
         if (isInitialLoading) {
           return const Center(
             child: Column(
@@ -108,6 +121,7 @@ class _HomeScreenBody extends StatelessWidget {
           );
         }
 
+        // Main content with scrolling enabled for smaller screens
         return const SingleChildScrollView(
           padding: EdgeInsets.all(16.0),
           child: Column(
@@ -126,6 +140,8 @@ class _HomeScreenBody extends StatelessWidget {
   }
 }
 
+/// Welcome card that displays greeting and current date
+/// StatefulWidget because it needs to track the day to update at midnight
 class _WelcomeCard extends StatefulWidget {
   const _WelcomeCard();
 
@@ -142,6 +158,7 @@ class _WelcomeCardState extends State<_WelcomeCard> {
     _updateDateInfo();
   }
 
+  /// Store the current day number to detect when the date changes
   void _updateDateInfo() {
     final now = DateTime.now();
     _lastUpdatedDay = now.day;
@@ -149,6 +166,8 @@ class _WelcomeCardState extends State<_WelcomeCard> {
 
   @override
   Widget build(BuildContext context) {
+    // Check if the day has changed since last build
+    // This ensures the date updates if the user keeps the app open past midnight
     final currentDay = DateTime.now().day;
     if (currentDay != _lastUpdatedDay) {
       _updateDateInfo();
@@ -160,9 +179,11 @@ class _WelcomeCardState extends State<_WelcomeCard> {
   }
 }
 
+/// Content for the welcome card (separated for cleaner code)
 class _WelcomeContent extends StatelessWidget {
   const _WelcomeContent();
 
+  /// Array of day names for display (Monday = index 0)
   static const List<String> _dayNames = [
     'Monday',
     'Tuesday',
@@ -176,6 +197,7 @@ class _WelcomeContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
+    // weekday is 1-7 (Monday-Sunday), subtract 1 to get array index
     final todayName = _dayNames[now.weekday - 1];
     final dateString = UtilsProvider.formatDate(
       UtilsProvider.formatDateForDisplay(now),
@@ -203,6 +225,8 @@ class _WelcomeContent extends StatelessWidget {
   }
 }
 
+/// Section that displays today's workout information
+/// Uses Selector to efficiently rebuild only when today's workout data changes
 class _TodaysWorkoutSection extends StatelessWidget {
   const _TodaysWorkoutSection();
 
@@ -210,6 +234,7 @@ class _TodaysWorkoutSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return Selector<WorkoutProvider, _TodaysWorkoutData>(
       selector: (_, provider) {
+        // Get today's date in ISO format (YYYY-MM-DD) for session lookup
         final todayKey = DateTime.now().toIso8601String().split('T')[0];
         return _TodaysWorkoutData(
           workout: provider.getTodaysWorkout(),
@@ -218,6 +243,7 @@ class _TodaysWorkoutSection extends StatelessWidget {
         );
       },
       builder: (context, data, _) {
+        // Show loading indicator if data isn't ready yet
         if (data.isLoading && data.workout == null && data.session == null) {
           return const Card(
             child: Padding(
@@ -236,6 +262,7 @@ class _TodaysWorkoutSection extends StatelessWidget {
   }
 }
 
+/// Card displaying today's workout details and action buttons
 class _TodaysWorkoutCard extends StatelessWidget {
   final Workout? todaysWorkout;
   final WorkoutSession? todaysSession;
@@ -245,6 +272,8 @@ class _TodaysWorkoutCard extends StatelessWidget {
     required this.todaysSession,
   });
 
+  // Define text styles as constants for consistency and performance
+  // Defining them once avoids recreating TextStyle objects on every build
   static const _titleStyle = TextStyle(
     fontSize: 18,
     fontWeight: FontWeight.bold,
@@ -256,6 +285,7 @@ class _TodaysWorkoutCard extends StatelessWidget {
   static const _detailsStyle = TextStyle(fontSize: 14, color: Colors.grey);
   static const _noWorkoutStyle = TextStyle(fontSize: 16, color: Colors.grey);
 
+  /// Returns appropriate color based on workout type
   Color _getWorkoutTypeColor(String workoutType) {
     switch (workoutType) {
       case 'fit_test':
@@ -267,11 +297,13 @@ class _TodaysWorkoutCard extends StatelessWidget {
     }
   }
 
+  /// Formats workout duration into human-readable text
+  /// Examples: "45 min", "1h 15min", "No workout"
   String _formatDuration(int minutes) {
     if (minutes == 0) return 'No workout';
     if (minutes < 60) return '$minutes min';
-    final hours = minutes ~/ 60;
-    final remainingMinutes = minutes % 60;
+    final hours = minutes ~/ 60; // Integer division
+    final remainingMinutes = minutes % 60; // Modulo operator for remainder
     if (remainingMinutes == 0) return '${hours}h';
     return '${hours}h ${remainingMinutes}min';
   }
@@ -286,15 +318,18 @@ class _TodaysWorkoutCard extends StatelessWidget {
           children: [
             const Text('Today\'s Workout', style: _titleStyle),
             const SizedBox(height: 12),
+            // Conditional rendering: show workout details or "no workout" message
             if (todaysWorkout != null) ...[
               Text(todaysWorkout!.name, style: _workoutNameStyle),
               const SizedBox(height: 4),
+              // Display workout metadata in a horizontal row
               Row(
                 children: [
                   Text(
                     'Week ${todaysWorkout!.weekNumber} • Day ${todaysWorkout!.dayNumber}',
                     style: _detailsStyle,
                   ),
+                  // Only show duration if it's greater than 0
                   if (todaysWorkout!.durationMinutes > 0) ...[
                     const Text(' • ', style: _detailsStyle),
                     Icon(
@@ -311,6 +346,7 @@ class _TodaysWorkoutCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 8),
+              // Visual badge showing workout type
               _WorkoutTypeChip(
                 workoutType: todaysWorkout!.workoutType,
                 backgroundColor: _getWorkoutTypeColor(
@@ -318,8 +354,10 @@ class _TodaysWorkoutCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 16),
+              // Display appropriate UI based on workout completion status
               _WorkoutStatus(workout: todaysWorkout!, session: todaysSession),
             ] else ...[
+              // Fallback when no workout is scheduled
               const Text(
                 'No workout scheduled for today',
                 style: _noWorkoutStyle,
@@ -332,6 +370,7 @@ class _TodaysWorkoutCard extends StatelessWidget {
   }
 }
 
+/// Visual chip/badge displaying the workout type
 class _WorkoutTypeChip extends StatelessWidget {
   final String workoutType;
   final Color backgroundColor;
@@ -350,6 +389,7 @@ class _WorkoutTypeChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
+        // Convert "fit_test" to "FIT TEST" for display
         workoutType.replaceAll('_', ' ').toUpperCase(),
         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
       ),
@@ -357,6 +397,8 @@ class _WorkoutTypeChip extends StatelessWidget {
   }
 }
 
+/// Widget that shows the current workout status and appropriate UI
+/// This could be: completed message, skipped message, or action buttons
 class _WorkoutStatus extends StatelessWidget {
   final Workout workout;
   final WorkoutSession? session;
@@ -376,6 +418,7 @@ class _WorkoutStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // If workout is already completed, show completion message
     if (session?.completed == true) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -387,6 +430,7 @@ class _WorkoutStatus extends StatelessWidget {
               Text('Completed!', style: _completedStyle),
             ],
           ),
+          // Show notes if they exist
           if (session?.notes?.isNotEmpty == true) ...[
             const SizedBox(height: 8),
             Text('Notes: ${session!.notes}'),
@@ -395,6 +439,7 @@ class _WorkoutStatus extends StatelessWidget {
       );
     }
 
+    // If workout was skipped, show skip message
     if (session?.completed == false) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -414,17 +459,46 @@ class _WorkoutStatus extends StatelessWidget {
       );
     }
 
+    // Otherwise, show action buttons to complete or skip
     return _WorkoutActionButtons(workout: workout);
   }
 }
 
-class _WorkoutActionButtons extends StatelessWidget {
+/// Interactive section with notes field and Complete/Skip buttons
+/// StatefulWidget because it needs to manage the text field's state
+class _WorkoutActionButtons extends StatefulWidget {
   final Workout workout;
 
   const _WorkoutActionButtons({required this.workout});
 
+  @override
+  State<_WorkoutActionButtons> createState() => _WorkoutActionButtonsState();
+}
+
+class _WorkoutActionButtonsState extends State<_WorkoutActionButtons> {
+  // Controller to manage the text field's content
+  // We need to create and dispose of this properly to avoid memory leaks
+  late final TextEditingController _notesController;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize the controller when the widget is first created
+    _notesController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    // Always dispose of controllers to free up resources
+    // This is critical in Flutter to prevent memory leaks
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  /// Marks the workout as completed and saves any notes
   Future<void> _completeWorkout(BuildContext context) async {
-    if (workout.workoutType == 'rest') {
+    // Rest days have special handling
+    if (widget.workout.workoutType == 'rest') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Rest days are automatically completed.'),
@@ -434,42 +508,32 @@ class _WorkoutActionButtons extends StatelessWidget {
       return;
     }
 
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Complete Workout'),
-        content: Text('Mark "${workout.name}" as completed?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            child: const Text('Complete'),
-          ),
-        ],
-      ),
+    // Get the WorkoutProvider without listening to changes
+    // listen: false is important here because we're in a callback, not build()
+    final provider = Provider.of<WorkoutProvider>(context, listen: false);
+
+    // Trim the notes and only save if there's actual content
+    final notes = _notesController.text.trim();
+    await provider.completeWorkout(
+      widget.workout.id,
+      notes: notes.isEmpty ? null : notes,
     );
 
-    if (result == true && context.mounted) {
-      final provider = Provider.of<WorkoutProvider>(context, listen: false);
-      await provider.completeWorkout(workout.id);
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Completed: ${workout.name}!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+    // Check if widget is still mounted before using context
+    // This prevents errors if user navigates away during the async operation
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Completed: ${widget.workout.name}!'),
+          backgroundColor: Colors.green,
+        ),
+      );
     }
   }
 
+  /// Marks the workout as skipped with optional reason
   Future<void> _skipWorkout(BuildContext context) async {
-    if (workout.workoutType == 'rest') {
+    if (widget.workout.workoutType == 'rest') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Rest days cannot be skipped.'),
@@ -478,70 +542,29 @@ class _WorkoutActionButtons extends StatelessWidget {
       );
       return;
     }
-    final reasonController = TextEditingController();
 
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Skip Workout'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Skip "${workout.name}"?'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: reasonController,
-              decoration: const InputDecoration(
-                labelText: 'Reason (optional)',
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-              ),
-              maxLines: 2,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-            child: const Text('Skip'),
-          ),
-        ],
-      ),
+    final provider = Provider.of<WorkoutProvider>(context, listen: false);
+    final reason = _notesController.text.trim();
+
+    await provider.skipWorkout(
+      widget.workout.id,
+      reason: reason.isEmpty ? 'No reason provided' : reason,
     );
 
-    if (result == true && context.mounted) {
-      final provider = Provider.of<WorkoutProvider>(context, listen: false);
-      await provider.skipWorkout(
-        workout.id,
-        reason: reasonController.text.isEmpty
-            ? 'No reason provided'
-            : reasonController.text,
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Skipped: ${widget.workout.name}'),
+          backgroundColor: Colors.orange,
+        ),
       );
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Skipped: ${workout.name}'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
     }
-
-    reasonController.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (workout.workoutType == 'rest') {
+    // Special UI for rest days
+    if (widget.workout.workoutType == 'rest') {
       return Container(
         padding: const EdgeInsets.symmetric(vertical: 12.0),
         alignment: Alignment.center,
@@ -555,34 +578,72 @@ class _WorkoutActionButtons extends StatelessWidget {
         ),
       );
     }
-    return Row(
+
+    // Regular workout UI with notes field and action buttons
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: () => _completeWorkout(context),
-            icon: const Icon(Icons.check),
-            label: const Text('Complete'),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+        // Text field for notes - always visible and editable
+        TextField(
+          controller: _notesController,
+          decoration: const InputDecoration(
+            labelText: 'Notes (optional)',
+            hintText: 'How did it go? Any thoughts?',
+            border: OutlineInputBorder(),
+            contentPadding: EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
+            // Add a small icon to make it clear this is for notes
+            prefixIcon: Icon(Icons.note_outlined, size: 20),
           ),
+          maxLines: 2,
+          minLines: 1,
+          // Done button on keyboard instead of new line
+          textInputAction: TextInputAction.done,
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: () => _skipWorkout(context),
-            icon: const Icon(Icons.skip_next),
-            label: const Text('Skip'),
-          ),
+        const SizedBox(height: 12),
+        // Action buttons in a horizontal row
+        Row(
+          children: [
+            // Expanded makes each button take equal width
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () => _completeWorkout(context),
+                icon: const Icon(Icons.check),
+                label: const Text('Complete'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  // Add some padding for better touch targets
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _skipWorkout(context),
+                icon: const Icon(Icons.skip_next),
+                label: const Text('Skip'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
   }
 }
 
+/// Quick statistics section showing weekly progress
 class _QuickStatsSection extends StatelessWidget {
   const _QuickStatsSection();
 
   @override
   Widget build(BuildContext context) {
+    // Use Selector to only rebuild when stats actually change
     return Selector<WorkoutProvider, _QuickStatsData>(
       selector: (_, provider) {
         final thisWeekSessions = provider.getThisWeekSessions();
@@ -596,6 +657,7 @@ class _QuickStatsSection extends StatelessWidget {
         );
       },
       builder: (context, data, _) {
+        // Show loading state if no data is available yet
         if (data.isLoading && data.scheduledThisWeek == 0) {
           return const Card(
             child: Padding(
@@ -615,6 +677,7 @@ class _QuickStatsSection extends StatelessWidget {
   }
 }
 
+/// Card displaying quick statistics in a visual format
 class _QuickStatsCard extends StatelessWidget {
   final int completedThisWeek;
   final int scheduledThisWeek;
@@ -641,6 +704,7 @@ class _QuickStatsCard extends StatelessWidget {
           children: [
             const Text('This Week', style: _titleStyle),
             const SizedBox(height: 12),
+            // Display stats in a horizontal row with equal spacing
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
@@ -658,6 +722,7 @@ class _QuickStatsCard extends StatelessWidget {
                 ),
                 _StatItem(
                   label: 'Cycle Progress',
+                  // toStringAsFixed(0) shows whole number with no decimals
                   value: '${currentCycleProgress.toStringAsFixed(0)}%',
                   icon: Icons.trending_up,
                   color: Colors.orange,
@@ -671,6 +736,8 @@ class _QuickStatsCard extends StatelessWidget {
   }
 }
 
+/// Individual stat item with icon, value, and label
+/// Used to display each metric in the quick stats section
 class _StatItem extends StatelessWidget {
   final String label;
   final String value;

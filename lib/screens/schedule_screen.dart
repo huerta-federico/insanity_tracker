@@ -282,7 +282,7 @@ class _WeeklyScheduleSliver extends StatelessWidget {
   Widget build(BuildContext context) {
     final weekNumbers = List.generate(
       WorkoutProvider.programCycleLengthWeeks,
-      (index) => index + 1,
+          (index) => index + 1,
     );
 
     return SliverList.builder(
@@ -481,9 +481,9 @@ class _WorkoutListTile extends StatelessWidget {
   });
 
   _WorkoutStatus _getWorkoutStatus(
-    WorkoutSession? session,
-    DateTime normalizedActualDate,
-  ) {
+      WorkoutSession? session,
+      DateTime normalizedActualDate,
+      ) {
     if (session?.completed == true) {
       return _WorkoutStatus.completed;
     } else if (session != null && !session.completed) {
@@ -512,6 +512,15 @@ class _WorkoutListTile extends StatelessWidget {
     }
   }
 
+  String _formatDuration(int minutes) {
+    if (minutes == 0) return '';
+    if (minutes < 60) return '$minutes min';
+    final hours = minutes ~/ 60;
+    final remainingMinutes = minutes % 60;
+    if (remainingMinutes == 0) return '${hours}h';
+    return '${hours}h ${remainingMinutes}min';
+  }
+
   @override
   Widget build(BuildContext context) {
     final dateString = actualWorkoutDate.toIso8601String().split('T')[0];
@@ -524,11 +533,26 @@ class _WorkoutListTile extends StatelessWidget {
 
     final status = _getWorkoutStatus(session, normalizedActualDate);
     final displayDate = UtilsProvider.formatMonthDay(actualWorkoutDate);
+    final duration = _formatDuration(workout.durationMinutes);
 
     return ListTile(
       leading: Icon(status.iconData, color: status.color),
       title: Text(workout.name),
-      subtitle: Text('Day ${workout.dayNumber} • $displayDate'),
+      subtitle: Row(
+        children: [
+          Text('Day ${workout.dayNumber} • $displayDate'),
+          if (duration.isNotEmpty) ...[
+            Text(' • '),
+            Icon(
+              Icons.timer_outlined,
+              size: 14,
+              color: Colors.grey.shade600,
+            ),
+            const SizedBox(width: 2),
+            Text(duration),
+          ],
+        ],
+      ),
       trailing: _WorkoutTypeChip(
         workoutType: workout.workoutType,
         backgroundColor: _getWorkoutTypeChipColor(workout.workoutType),
@@ -546,14 +570,14 @@ class _WorkoutListTile extends StatelessWidget {
   }
 
   void _showWorkoutDetailsDialog(
-    BuildContext context,
-    Workout workout,
-    WorkoutProvider workoutProvider,
-    WorkoutSession? session,
-    DateTime actualWorkoutDate,
-    DateTime normalizedToday,
-    _WorkoutStatus currentStatus,
-  ) {
+      BuildContext context,
+      Workout workout,
+      WorkoutProvider workoutProvider,
+      WorkoutSession? session,
+      DateTime actualWorkoutDate,
+      DateTime normalizedToday,
+      _WorkoutStatus currentStatus,
+      ) {
     final normalizedActualDate = DateTime(
       actualWorkoutDate.year,
       actualWorkoutDate.month,
@@ -562,9 +586,10 @@ class _WorkoutListTile extends StatelessWidget {
     final canModify =
         (normalizedActualDate.isAtSameMomentAs(normalizedToday) ||
             normalizedActualDate.isBefore(normalizedToday)) &&
-        workoutProvider.programStartDate != null;
+            workoutProvider.programStartDate != null;
 
     final notesController = TextEditingController(text: session?.notes ?? '');
+    final duration = _formatDuration(workout.durationMinutes);
 
     showDialog(
       context: context,
@@ -581,6 +606,8 @@ class _WorkoutListTile extends StatelessWidget {
               Text(
                 'Type: ${workout.workoutType.replaceAll('_', ' ').toUpperCase()}',
               ),
+              if (duration.isNotEmpty)
+                Text('Duration: $duration'),
               const SizedBox(height: 8),
               Text(
                 'Status: ${currentStatus.text}',
@@ -661,13 +688,13 @@ class _WorkoutListTile extends StatelessWidget {
   }
 
   Future<void> _handleCompleteWorkout(
-    BuildContext context,
-    BuildContext dialogContext,
-    WorkoutProvider workoutProvider,
-    Workout workout,
-    String notes,
-    DateTime actualWorkoutDate,
-  ) async {
+      BuildContext context,
+      BuildContext dialogContext,
+      WorkoutProvider workoutProvider,
+      Workout workout,
+      String notes,
+      DateTime actualWorkoutDate,
+      ) async {
     await workoutProvider.completeWorkout(
       workout.id,
       notes: notes,
@@ -688,14 +715,14 @@ class _WorkoutListTile extends StatelessWidget {
   }
 
   Future<void> _handleSkipWorkout(
-    BuildContext context,
-    BuildContext dialogContext,
-    WorkoutProvider workoutProvider,
-    Workout workout,
-    WorkoutSession? session,
-    String notes,
-    DateTime actualWorkoutDate,
-  ) async {
+      BuildContext context,
+      BuildContext dialogContext,
+      WorkoutProvider workoutProvider,
+      Workout workout,
+      WorkoutSession? session,
+      String notes,
+      DateTime actualWorkoutDate,
+      ) async {
     await workoutProvider.skipWorkout(
       workout.id,
       reason: notes,
